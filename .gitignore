@@ -1,3 +1,5 @@
 .idea
 .venv
 session.session
+downloads/
+src/__pycache__/
