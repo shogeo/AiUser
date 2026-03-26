@@ -1,10 +1,6 @@
 import ast
 from typing import Any, Dict, List, Tuple
 
-from src.logger import setup_logger
-
-logger = setup_logger(__name__)
-
 
 def parse_command(line: str) -> Tuple[str, List[Any], Dict[str, Any]]:
     line = line.strip()

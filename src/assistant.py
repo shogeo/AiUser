@@ -8,10 +8,7 @@ from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SY
 from src.context import ContextManager
 from src.executor import CommandExecutor
 from src.file_manager import FileManager
-from src.logger import setup_logger
 from src.parser import parse_command
-
-logger = setup_logger(__name__)
 
 SAFETY_SETTINGS = [
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.BLOCK_NONE),
@@ -36,25 +33,20 @@ class TelegramAIAssistant:
 
         self.event_buffer = EventBuffer(self._on_event_buffer_flush)
         self._processing = False
-        logger.info("Assistant initialized with model gemini-3.1-flash-lite-preview")
 
     async def setup(self):
         await self.tg_client.start()
         self.tg_client.add_event_handler(self._raw_handler)
-        logger.info("Telegram client started.")
 
     async def _raw_handler(self, event):
-        logger.debug("New raw event: %s", type(event).__name__)
         self.event_buffer.add_event(str(event))
 
     async def _on_event_buffer_flush(self, events_list: list[str]):
         if self._processing:
-            logger.info("AI is currently busy. Buffering %d events.", len(events_list))
             self.event_buffer.buffer.extend(events_list)
             return
 
         self._processing = True
-        logger.info("Processing %d events from buffer.", len(events_list))
         try:
             self.context_mgr.add_user_message("\n".join(events_list))
             await self._main_loop()
@@ -63,7 +55,6 @@ class TelegramAIAssistant:
 
     async def _main_loop(self):
         try:
-            logger.info("Requesting Gemini (gemini-3.1-flash-lite-preview)...")
             response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
                                                                            contents=self.context_mgr.get_contents(),
                                                                            config=types.GenerateContentConfig(
@@ -71,14 +62,11 @@ class TelegramAIAssistant:
                                                                                safety_settings=SAFETY_SETTINGS, ))
 
             if not response.text:
-                logger.warning("Gemini returned no text. Breaking loop.")
                 return
 
             model_reply = response.text.strip()
-            logger.info("Model response received: %s", model_reply)
 
             if model_reply.upper() == "NONE":
-                logger.info("AI signaled completion with 'None'. Loop terminated.")
                 return
 
             self.context_mgr.add_model_message(model_reply)
@@ -90,31 +78,26 @@ class TelegramAIAssistant:
                     continue
 
                 try:
-                    logger.info("Parsing & Executing: %s", line)
                     method, args, kwargs = parse_command(line)
                     cmd_str, res_text, file_part = await self.executor.execute(method, args, kwargs)
 
-                    logger.info("Result of %s: %s", method, str(res_text)[:100])
                     # Сразу пушим результат выполнения в контекст
                     self.context_mgr.add_user_message(f"{cmd_str}\n\n{res_text}", file_part=file_part)
                     has_executed_anything = True
                 except Exception as e:
-                    logger.error("Execution failed for '%s': %s", line, e)
                     self.context_mgr.add_user_message(f"{line}\n\nError: {e}")
 
             if has_executed_anything:
                 if self.event_buffer.buffer:
                     new_events = "\n".join(self.event_buffer.buffer)
-                    logger.info("Adding %d new events from buffer to current loop.", len(self.event_buffer.buffer))
                     self.event_buffer.buffer.clear()
                     self.context_mgr.add_user_message(new_events)
 
                 await self._main_loop()
 
-        except Exception as e:
-            logger.error("Fatal error in assistant loop: %s", e, exc_info=True)
+        except Exception:
+            pass
 
     async def run(self):
         await self.setup()
-        logger.info("Assistant running. Press Ctrl+C to exit.")
         await self.tg_client.run_until_disconnected()

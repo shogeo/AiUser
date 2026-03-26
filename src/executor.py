@@ -5,9 +5,6 @@ from google.genai import types
 from telethon import TelegramClient
 
 from src.file_manager import FileManager
-from src.logger import setup_logger
-
-logger = setup_logger(__name__)
 
 
 class CommandExecutor:
@@ -50,5 +47,4 @@ class CommandExecutor:
             return command_str, str(result), file_part
 
         except Exception as e:
-            logger.exception("Execute error: %s", e)
             return command_str, f"Error: {e}", None

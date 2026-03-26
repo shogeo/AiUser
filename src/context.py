@@ -1,8 +1,5 @@
 from typing import List, Optional
 from google.genai import types
-from src.logger import setup_logger
-
-logger = setup_logger(__name__)
 
 class ContextManager:
     def __init__(self, system_prompt: str):
