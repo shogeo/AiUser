@@ -7,10 +7,10 @@ logger = setup_logger(__name__)
 class ContextManager:
     def __init__(self, system_prompt: str):
         self.system_prompt = system_prompt
-        # Инициализируем историю системным промтом
-        self.history: List[types.Content] = [
-            types.Content(role="system", parts=[types.Part.from_text(text=system_prompt)])
-        ]
+        self.history: List[types.Content] = []
+
+    def get_system_prompt(self) -> str:
+        return self.system_prompt
 
     def add_user_message(self, text: str, file_part: Optional[types.Part] = None):
         parts = [types.Part.from_text(text=text)]
@@ -23,4 +23,3 @@ class ContextManager:
 
     def get_contents(self) -> List[types.Content]:
         return self.history
-

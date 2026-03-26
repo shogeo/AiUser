@@ -1,11 +1,14 @@
 import asyncio
 from typing import Any, Dict, List, Optional, Tuple
-from telethon import TelegramClient
+
 from google.genai import types
-from src.logger import setup_logger
+from telethon import TelegramClient
+
 from src.file_manager import FileManager
+from src.logger import setup_logger
 
 logger = setup_logger(__name__)
+
 
 class CommandExecutor:
     def __init__(self, tg_client: TelegramClient, file_manager: FileManager):
@@ -13,7 +16,6 @@ class CommandExecutor:
         self.file_manager = file_manager
 
     async def download_media(self, entity: Any, message_id: int) -> str:
-        """Метод скачивания: берет сообщение по ID и сохраняет файл."""
         try:
             entity_resolved = await self.tg_client.get_input_entity(entity)
             msg = await self.tg_client.get_messages(entity_resolved, ids=int(message_id))
@@ -24,9 +26,10 @@ class CommandExecutor:
         except Exception as e:
             return f"Error during download: {e}"
 
-    async def execute(self, method_name: str, args: List[Any], kwargs: Dict[str, Any]) -> Tuple[str, str, Optional[types.Part]]:
+    async def execute(self, method_name: str, args: List[Any], kwargs: Dict[str, Any]) -> Tuple[
+        str, str, Optional[types.Part]]:
         command_str = f"{method_name}({', '.join(map(repr, args))}, {', '.join(f'{k}={repr(v)}' for k, v in kwargs.items())})"
-        
+
         try:
             if method_name == "download_media":
                 result = await self.download_media(*args, **kwargs)
@@ -34,20 +37,18 @@ class CommandExecutor:
                 method = getattr(self.tg_client, method_name, None)
                 if not method or not callable(method):
                     raise AttributeError(f"Method '{method_name}' not found on TelegramClient.")
-                
+
                 if asyncio.iscoroutinefunction(method):
                     result = await method(*args, **kwargs)
                 else:
                     result = method(*args, **kwargs)
-            
+
             file_part = None
-            # Если это скачивание и результат похож на путь к файлу
             if method_name == "download_media" and isinstance(result, str) and "/" in result:
                 file_part = await self.file_manager.upload_and_get_part(result)
-            
+
             return command_str, str(result), file_part
 
         except Exception as e:
             logger.exception("Execute error: %s", e)
             return command_str, f"Error: {e}", None
-

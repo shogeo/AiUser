@@ -1,7 +1,6 @@
 import logging
 
 def setup_logger(name: str = "tg_ai") -> logging.Logger:
-    """Настройка и возврат логгера"""
     logging.basicConfig(
         format="[%(levelname)s %(asctime)s] %(name)s: %(message)s",
         level=logging.INFO,

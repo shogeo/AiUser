@@ -5,8 +5,8 @@ from src.logger import setup_logger
 
 logger = setup_logger(__name__)
 
+
 def parse_command(line: str) -> Tuple[str, List[Any], Dict[str, Any]]:
-    """Разбор строки команды вида method(arg1, arg2, kw=val)"""
     line = line.strip()
     if not line:
         raise ValueError("Пустая строка")

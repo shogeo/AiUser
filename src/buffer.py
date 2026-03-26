@@ -1,10 +1,11 @@
 import asyncio
 from typing import List, Optional, Callable, Awaitable
 
-from src.logger import setup_logger
 from src.config import EVENT_BUFFER_TIMEOUT
+from src.logger import setup_logger
 
 logger = setup_logger(__name__)
+
 
 class EventBuffer:
     def __init__(self, flush_callback: Callable[[List[str]], Awaitable[None]]):

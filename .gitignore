@@ -1,5 +1,6 @@
 .idea
 .venv
 session.session
+session.session-journal
 downloads/
 src/__pycache__/

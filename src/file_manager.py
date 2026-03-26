@@ -1,11 +1,14 @@
 import asyncio
 from pathlib import Path
 from typing import Optional, Union
+
 from google import genai
 from google.genai import types
+
 from src.logger import setup_logger
 
 logger = setup_logger(__name__)
+
 
 class FileManager:
     def __init__(self, genai_client: genai.Client):
@@ -34,7 +37,7 @@ class FileManager:
             logger.info("Uploading '%s' to Gemini via Async API...", filename)
             # Используем .aio для асинхронности
             uploaded_file = await self.genai_client.aio.files.upload(file=path_to_upload)
-            
+
             # Ожидание активации файла
             while uploaded_file.state.name != "ACTIVE":
                 if uploaded_file.state.name == "FAILED":
@@ -50,4 +53,3 @@ class FileManager:
         except Exception as e:
             logger.exception("FileManager error during upload: %s", e)
             return None
-
