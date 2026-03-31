@@ -11,6 +11,7 @@ from src.executor import CommandExecutor
 from src.file_manager import FileManager
 from src.logger import get_logger, configure_logging
 from src.parser import parse_command
+from src.exceptions import ModelCommandError, SystemCommandError
 
 # Configure logging for the entire application
 configure_logging()
@@ -95,11 +96,26 @@ class TelegramAIAssistant:
                 try:
                     method, args, kwargs = parse_command(line)
                     cmd_str, res_text, file_part = await self.executor.execute(method, args, kwargs)
-                    self.context_mgr.add_user_message(f"{cmd_str}\n\n{res_text}", file_part=file_part)
+                    
+                    # Success: add the result to the context
+                    self.context_mgr.add_user_message(f"Command execution result:\n{res_text}", file_part=file_part)
                     has_executed_anything = True
+
+                except ModelCommandError as e:
+                    # It's the model's fault. Let it know so it can correct itself.
+                    logger.warning("Model command error for '%s': %s", line, e)
+                    self.context_mgr.add_user_message(f"Error in generated command '{line}':\n{e}")
+                    has_executed_anything = True # We consider this an execution, as it generates a response
+
+                except SystemCommandError as e:
+                    # It's our fault (or the environment's). Log it for us, don't bother the model.
+                    logger.error("System error during command execution for '%s': %s", line, e, exc_info=True)
+                    # We don't add this to the context, as the model can't act on it.
+
                 except Exception as e:
-                    logger.error("Failed to execute command '%s': %s", line, e)
-                    self.context_mgr.add_user_message(f"Error executing command:\n{line}\n\n{e}")
+                    # An unexpected error. This is a bug in our code.
+                    logger.critical("An unexpected error occurred for command '%s': %s", line, e, exc_info=True)
+                    # We also don't add this to the context.
 
             if has_executed_anything:
                 if self.event_buffer.buffer:
@@ -117,4 +133,4 @@ class TelegramAIAssistant:
             await self.setup()
             await self.tg_client.run_until_disconnected()
         finally:
-            logger.info("Assistant shutting down.")
+            logger.info("Shutting down.")

@@ -5,7 +5,7 @@ OPERATIONAL PROTOCOL:
 Send ONLY commands. One command per line, if the command takes several lines, you will get an error.
 Your commands are executed directly by the interpreter, syntax errors are not allowed.
 
-If your task is completed or you do not want to perform any actions, write None in your message without any other text.
+If your task is completed, or you do not want to perform any actions, write None in your message without any other text.
 The word None is simply ignored, so it makes no sense to use it in combination with other commands.
 I also want to point out that you will receive a result from each command you send.
 It can be an object of the message you sent, an array of messages, an execution error, etc., DO NOT THINK THAT THIS IS A NEW EVENT.

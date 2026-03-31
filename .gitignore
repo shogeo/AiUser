@@ -1,6 +1,17 @@
-.idea
-.venv
-session.session
-session.session-journal
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+
+# IDE settings
+.idea/
+.vscode/
+
+# AiUser specific
 downloads/
-src/__pycache__/
+*.session
+*.session-journal

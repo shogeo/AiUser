@@ -1,55 +1,127 @@
 import asyncio
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from google.genai import types
 from telethon import TelegramClient
 
 from src.file_manager import FileManager
 from src.logger import get_logger
+from src.exceptions import CommandNotFoundError, InvalidArgumentError, SystemCommandError, FileOperationError
 
 logger = get_logger("executor")
 
+@dataclass
+class CommandResult:
+    """
+    Represents the result of a command execution.
+    text_result: The text output to be sent back to the model.
+    file_to_upload: Optional path to a file that needs to be uploaded to Gemini.
+    """
+    text_result: str
+    file_to_upload: Optional[Path] = None
 
 class CommandExecutor:
     def __init__(self, tg_client: TelegramClient, file_manager: FileManager):
         self.tg_client = tg_client
         self.file_manager = file_manager
 
-    async def download_media(self, entity: Any, message_id: int) -> str:
+    async def download_media(self, entity: Union[int, str], message_id: int) -> CommandResult:
+        """
+        Downloads media from a Telegram message.
+        Raises SystemCommandError or FileOperationError on failure.
+        """
         try:
             entity_resolved = await self.tg_client.get_input_entity(entity)
             msg = await self.tg_client.get_messages(entity_resolved, ids=int(message_id))
             if not msg or not msg.media:
-                return "No media found in this message."
-            path = await self.tg_client.download_media(msg, file="downloads/")
-            return path if path else "Failed to download media."
+                return CommandResult(text_result="No media found in this message.")
+            
+            # telethon.download_media returns the path as a string
+            path = await self.tg_client.download_media(msg, file=str(self.file_manager.downloads_dir))
+            
+            if path:
+                downloaded_path = Path(path)
+                return CommandResult(text_result=f"Media downloaded to {downloaded_path.name}", file_to_upload=downloaded_path)
+            else:
+                raise FileOperationError("Failed to download media: unknown reason.")
+        except FileOperationError:
+            raise # Re-raise specific file operation error
         except Exception as e:
-            logger.error("Error during media download: %s", e, exc_info=True)
-            return f"Error during download: {e}"
+            logger.error("System error during media download for entity '%s', message_id '%s': %s", entity, message_id, e, exc_info=True)
+            raise SystemCommandError(f"System error during media download: {e}") from e
+
+    async def download_profile_photo(self, entity: Union[int, str], download_big: bool = True) -> CommandResult:
+        """
+        Downloads a profile photo for a given entity.
+        Raises SystemCommandError or FileOperationError on failure.
+        """
+        try:
+            entity_resolved = await self.tg_client.get_input_entity(entity)
+            
+            # telethon.download_profile_photo returns the path as a string
+            path = await self.tg_client.download_profile_photo(entity_resolved, file=str(self.file_manager.downloads_dir), download_big=download_big)
+
+            if path:
+                downloaded_path = Path(path)
+                return CommandResult(text_result=f"Profile photo downloaded to {downloaded_path.name}", file_to_upload=downloaded_path)
+            else:
+                raise FileOperationError("Failed to download profile photo: unknown reason.")
+        except FileOperationError:
+            raise # Re-raise specific file operation error
+        except Exception as e:
+            logger.error("System error during profile photo download for entity '%s': %s", entity, e, exc_info=True)
+            raise SystemCommandError(f"System error during profile photo download: {e}") from e
 
     async def execute(self, method_name: str, args: List[Any], kwargs: Dict[str, Any]) -> Tuple[
         str, str, Optional[types.Part]]:
+        """
+        Executes a TelegramClient command and handles its result, including file uploads.
+        Raises ModelCommandError or SystemCommandError on failure.
+        """
         command_str = f"{method_name}({', '.join(map(repr, args))}, {', '.join(f'{k}={repr(v)}' for k, v in kwargs.items())})"
 
         try:
+            command_result: CommandResult
+
+            # Handle specific file download commands
             if method_name == "download_media":
-                result = await self.download_media(*args, **kwargs)
+                command_result = await self.download_media(*args, **kwargs)
+            elif method_name == "download_profile_photo":
+                command_result = await self.download_profile_photo(*args, **kwargs)
             else:
+                # Handle generic TelegramClient methods
                 method = getattr(self.tg_client, method_name, None)
                 if not method or not callable(method):
-                    raise AttributeError(f"Method '{method_name}' not found on TelegramClient.")
+                    raise CommandNotFoundError(f"Method '{method_name}' not found on TelegramClient.")
 
-                if asyncio.iscoroutinefunction(method):
-                    result = await method(*args, **kwargs)
-                else:
-                    result = method(*args, **kwargs)
+                try:
+                    if asyncio.iscoroutinefunction(method):
+                        raw_result = await method(*args, **kwargs)
+                    else:
+                        raw_result = method(*args, **kwargs)
+                    
+                    command_result = CommandResult(text_result=str(raw_result))
+                except TypeError as e:
+                    # This often indicates incorrect arguments passed to the method
+                    raise InvalidArgumentError(f"Invalid arguments for method '{method_name}': {e}") from e
+                except Exception as e:
+                    # Any other unexpected error during the actual method call
+                    logger.error("System error during execution of TelegramClient method '%s': %s", method_name, e, exc_info=True)
+                    raise SystemCommandError(f"System error during execution of '{method_name}': {e}") from e
 
             file_part = None
-            if method_name == "download_media" and isinstance(result, str) and "/" in result:
-                file_part = await self.file_manager.upload_and_get_part(result)
+            if command_result.file_to_upload:
+                # file_manager.upload_and_get_part can raise FileOperationError
+                file_part = await self.file_manager.upload_and_get_part(command_result.file_to_upload)
 
-            return command_str, str(result), file_part
+            return command_str, command_result.text_result, file_part
 
+        except (CommandNotFoundError, InvalidArgumentError, SystemCommandError, FileOperationError):
+            # Re-raise specific exceptions that are already categorized
+            raise
         except Exception as e:
-            logger.error("Error executing command '%s': %s", command_str, e, exc_info=True)
-            return command_str, f"Error: {e}", None
+            # Catch any other unexpected exceptions and wrap them as SystemCommandError
+            logger.critical("An unexpected error occurred in execute for command '%s': %s", command_str, e, exc_info=True)
+            raise SystemCommandError(f"An unexpected system error occurred during command execution: {e}") from e

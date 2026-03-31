@@ -5,6 +5,7 @@ from typing import Optional, Union
 from google import genai
 from google.genai import types
 
+from src.exceptions import FileOperationError
 from src.logger import get_logger
 
 logger = get_logger("file_manager")
@@ -21,14 +22,13 @@ class FileManager:
             return Path(file_data).name
         return f"temp_file_{hash(file_data)}.bin"
 
-    async def upload_and_get_part(self, file_data: Union[str, Path, bytes]) -> Optional[types.Part]:
+    async def upload_and_get_part(self, file_data: Union[str, Path, bytes]) -> types.Part:
         filename = self.get_filename(file_data)
         try:
             if isinstance(file_data, (str, Path)):
                 path_to_upload = Path(file_data)
                 if not path_to_upload.exists():
-                    logger.error("File to upload not found: %s", path_to_upload)
-                    return None
+                    raise FileOperationError(f"File to upload not found: {path_to_upload}")
             else:
                 path_to_upload = self.downloads_dir / filename
                 path_to_upload.write_bytes(file_data)
@@ -36,10 +36,10 @@ class FileManager:
             logger.info("Uploading file '%s'...", filename)
             uploaded_file = await self.genai_client.aio.files.upload(file=path_to_upload)
 
+            # Wait for the file to be active
             while uploaded_file.state.name != "ACTIVE":
                 if uploaded_file.state.name == "FAILED":
-                    logger.error("File upload failed for '%s'.", filename)
-                    return None
+                    raise FileOperationError(f"File upload failed for '{filename}'. State: FAILED")
                 await asyncio.sleep(1)
                 uploaded_file = await self.genai_client.aio.files.get(name=uploaded_file.name)
             
@@ -48,4 +48,4 @@ class FileManager:
 
         except Exception as e:
             logger.error("Error during file upload for '%s': %s", filename, e, exc_info=True)
-            return None
+            raise FileOperationError(f"An unexpected error occurred during file upload for '{filename}': {e}") from e
