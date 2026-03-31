@@ -1,7 +1,6 @@
 import logging
 
 class ColorFormatter(logging.Formatter):
-    """A custom formatter to add colors to log levels."""
     GREEN = "\x1b[32m"
     YELLOW = "\x1b[33m"
     RED = "\x1b[31m"
@@ -26,16 +25,12 @@ class ColorFormatter(logging.Formatter):
         return formatter.format(record)
 
 def configure_logging():
-    """Configures the root logger for the application."""
-    # Silence noisy libraries
     logging.getLogger("telethon").setLevel(logging.WARNING)
     logging.getLogger("google_genai").setLevel(logging.WARNING)
     
-    # Configure the root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     
-    # Clear existing handlers to avoid duplicates
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
@@ -44,5 +39,4 @@ def configure_logging():
     root_logger.addHandler(handler)
 
 def get_logger(name: str) -> logging.Logger:
-    """Returns a logger with the specified name."""
     return logging.getLogger(name)

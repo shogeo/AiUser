@@ -3,9 +3,6 @@ from typing import Any, Dict, List, Tuple
 from src.exceptions import ParsingError
 
 def parse_command(line: str) -> Tuple[str, List[Any], Dict[str, Any]]:
-    """
-    Parses a command string into a method name, positional arguments, and keyword arguments.
-    """
     line = line.strip()
     if not line:
         raise ParsingError("Command line is empty.")
@@ -28,7 +25,6 @@ def parse_command(line: str) -> Tuple[str, List[Any], Dict[str, Any]]:
         return method_name, [], {}
 
     try:
-        # We wrap the arguments in a function call `f(...)` to create a valid AST node.
         tree = ast.parse(f"f({args_str})", mode='eval')
         if not isinstance(tree.body, ast.Call):
             raise ParsingError("Failed to parse arguments as a function call.")
@@ -39,7 +35,6 @@ def parse_command(line: str) -> Tuple[str, List[Any], Dict[str, Any]]:
             try:
                 val = ast.literal_eval(a)
             except (ValueError, SyntaxError):
-                # If it's not a literal, treat it as a string representation.
                 val = ast.unparse(a)
             args.append(val)
 

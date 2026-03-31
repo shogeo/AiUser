@@ -1,5 +1,7 @@
 from typing import List, Optional
+
 from google.genai import types
+
 
 class ContextManager:
     def __init__(self, system_prompt: str):
