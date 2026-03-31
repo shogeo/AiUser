@@ -1,3 +1,4 @@
+import asyncio
 from google import genai
 from google.genai import types
 from google.genai.types import HarmCategory, HarmBlockThreshold
@@ -6,20 +7,22 @@ from telethon import TelegramClient
 from src.buffer import EventBuffer
 from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH)
 from src.context import ContextManager
-from src.exceptions import ModelCommandError, SystemCommandError
 from src.executor import CommandExecutor
 from src.file_manager import FileManager
 from src.logger import get_logger, configure_logging
-from src.parser import parse_command
+from src.parser import parse_full_api_command
+from src.exceptions import ModelCommandError, SystemCommandError
 
+# Configure logging for the entire application
 configure_logging()
 logger = get_logger("assistant")
 
 SAFETY_SETTINGS = [
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.OFF),
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.OFF),
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.OFF),
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.OFF)]
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.BLOCK_NONE),
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.BLOCK_NONE),
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_NONE),
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                        threshold=HarmBlockThreshold.BLOCK_NONE), ]
 
 
 class TelegramAIAssistant:
@@ -68,7 +71,7 @@ class TelegramAIAssistant:
                                                                            config=types.GenerateContentConfig(
                                                                                system_instruction=self.context_mgr.get_system_prompt(),
                                                                                safety_settings=SAFETY_SETTINGS, ))
-
+            
             if not response.text:
                 logger.warning("Neural network returned no text. Ending loop.")
                 return
@@ -91,24 +94,31 @@ class TelegramAIAssistant:
                     continue
 
                 try:
-                    method, args, kwargs = parse_command(line)
-                    cmd_str, res_text, file_part = await self.executor.execute(method, args, kwargs)
-
-                    self.context_mgr.add_user_message(f"Command execution result:\n{res_text}", file_part=file_part)
+                    # Use the new parser for full API commands
+                    request_object = parse_full_api_command(line)
+                    
+                    # The new executor returns a simple string result
+                    res_text = await self.executor.execute(request_object)
+                    
+                    # Success: add the result to the context
+                    self.context_mgr.add_user_message(f"Command execution result:\n{res_text}")
                     has_executed_anything = True
 
                 except ModelCommandError as e:
+                    # It's the model's fault. Let it know so it can correct itself.
                     logger.warning("Model command error for '%s': %s", line, e)
                     self.context_mgr.add_user_message(f"Error in generated command '{line}':\n{e}")
-                    has_executed_anything = True
+                    has_executed_anything = True # We consider this an execution, as it generates a response
 
                 except SystemCommandError as e:
-                    logger.error("System error during command execution for '%s': %s", line, e,
-                                 exc_info=True)
+                    # It's our fault (or the environment's). Log it for us, don't bother the model.
+                    logger.error("System error during command execution for '%s': %s", line, e, exc_info=True)
+                    # We don't add this to the context, as the model can't act on it.
 
                 except Exception as e:
-                    logger.critical("An unexpected error occurred for command '%s': %s", line, e,
-                                    exc_info=True)
+                    # An unexpected error. This is a bug in our code.
+                    logger.critical("An unexpected error occurred for command '%s': %s", line, e, exc_info=True)
+                    # We also don't add this to the context.
 
             if has_executed_anything:
                 if self.event_buffer.buffer:
