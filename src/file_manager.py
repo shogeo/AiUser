@@ -5,9 +5,9 @@ from typing import Optional, Union
 from google import genai
 from google.genai import types
 
-from src.logger import setup_logger
+from src.logger import get_logger
 
-logger = setup_logger("file_manager")
+logger = get_logger("file_manager")
 
 
 class FileManager:

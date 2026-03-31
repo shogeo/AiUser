@@ -5,9 +5,9 @@ from google.genai import types
 from telethon import TelegramClient
 
 from src.file_manager import FileManager
-from src.logger import setup_logger
+from src.logger import get_logger
 
-logger = setup_logger("executor")
+logger = get_logger("executor")
 
 
 class CommandExecutor:

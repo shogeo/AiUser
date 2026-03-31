@@ -1,3 +1,4 @@
+import asyncio
 from google import genai
 from google.genai import types
 from google.genai.types import HarmCategory, HarmBlockThreshold
@@ -8,10 +9,12 @@ from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SY
 from src.context import ContextManager
 from src.executor import CommandExecutor
 from src.file_manager import FileManager
-from src.logger import setup_logger
+from src.logger import get_logger, configure_logging
 from src.parser import parse_command
 
-logger = setup_logger("assistant")
+# Configure logging for the entire application
+configure_logging()
+logger = get_logger("assistant")
 
 SAFETY_SETTINGS = [
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.BLOCK_NONE),
@@ -40,7 +43,7 @@ class TelegramAIAssistant:
     async def setup(self):
         await self.tg_client.start()
         self.tg_client.add_event_handler(self._raw_handler)
-        logger.info("Assistant started and connected to Telegram.")
+        logger.info("Started and connected to Telegram.")
 
     async def _raw_handler(self, event):
         event_str = str(event)
@@ -110,5 +113,8 @@ class TelegramAIAssistant:
             logger.critical("Fatal error in main loop: %s", e, exc_info=True)
 
     async def run(self):
-        await self.setup()
-        await self.tg_client.run_until_disconnected()
+        try:
+            await self.setup()
+            await self.tg_client.run_until_disconnected()
+        finally:
+            logger.info("Assistant shutting down.")
