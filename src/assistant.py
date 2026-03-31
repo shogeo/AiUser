@@ -8,7 +8,10 @@ from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SY
 from src.context import ContextManager
 from src.executor import CommandExecutor
 from src.file_manager import FileManager
+from src.logger import setup_logger
 from src.parser import parse_command
+
+logger = setup_logger("assistant")
 
 SAFETY_SETTINGS = [
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.BLOCK_NONE),
@@ -37,9 +40,12 @@ class TelegramAIAssistant:
     async def setup(self):
         await self.tg_client.start()
         self.tg_client.add_event_handler(self._raw_handler)
+        logger.info("Assistant started and connected to Telegram.")
 
     async def _raw_handler(self, event):
-        self.event_buffer.add_event(str(event))
+        event_str = str(event)
+        logger.info(event_str)
+        self.event_buffer.add_event(event_str)
 
     async def _on_event_buffer_flush(self, events_list: list[str]):
         if self._processing:
@@ -55,22 +61,28 @@ class TelegramAIAssistant:
 
     async def _main_loop(self):
         try:
+            logger.info("Sending event batch to the neural network...")
             response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
                                                                            contents=self.context_mgr.get_contents(),
                                                                            config=types.GenerateContentConfig(
                                                                                system_instruction=self.context_mgr.get_system_prompt(),
                                                                                safety_settings=SAFETY_SETTINGS, ))
-
+            
             if not response.text:
+                logger.warning("Neural network returned no text. Ending loop.")
                 return
 
             model_reply = response.text.strip()
+            logger.info("Neural network response:\n%s", model_reply)
 
             if model_reply.upper() == "NONE":
                 return
 
             self.context_mgr.add_model_message(model_reply)
             command_lines = [l.strip() for l in model_reply.split("\n") if l.strip()]
+
+            if command_lines:
+                logger.info("Executing commands and getting results...")
 
             has_executed_anything = False
             for line in command_lines:
@@ -80,23 +92,22 @@ class TelegramAIAssistant:
                 try:
                     method, args, kwargs = parse_command(line)
                     cmd_str, res_text, file_part = await self.executor.execute(method, args, kwargs)
-
-                    # Сразу пушим результат выполнения в контекст
                     self.context_mgr.add_user_message(f"{cmd_str}\n\n{res_text}", file_part=file_part)
                     has_executed_anything = True
                 except Exception as e:
-                    self.context_mgr.add_user_message(f"{line}\n\nError: {e}")
+                    logger.error("Failed to execute command '%s': %s", line, e)
+                    self.context_mgr.add_user_message(f"Error executing command:\n{line}\n\n{e}")
 
             if has_executed_anything:
                 if self.event_buffer.buffer:
                     new_events = "\n".join(self.event_buffer.buffer)
                     self.event_buffer.buffer.clear()
                     self.context_mgr.add_user_message(new_events)
-
+                
                 await self._main_loop()
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.critical("Fatal error in main loop: %s", e, exc_info=True)
 
     async def run(self):
         await self.setup()

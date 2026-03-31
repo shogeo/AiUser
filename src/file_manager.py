@@ -5,6 +5,10 @@ from typing import Optional, Union
 from google import genai
 from google.genai import types
 
+from src.logger import setup_logger
+
+logger = setup_logger("file_manager")
+
 
 class FileManager:
     def __init__(self, genai_client: genai.Client):
@@ -23,20 +27,25 @@ class FileManager:
             if isinstance(file_data, (str, Path)):
                 path_to_upload = Path(file_data)
                 if not path_to_upload.exists():
+                    logger.error("File to upload not found: %s", path_to_upload)
                     return None
             else:
                 path_to_upload = self.downloads_dir / filename
                 path_to_upload.write_bytes(file_data)
 
+            logger.info("Uploading file '%s'...", filename)
             uploaded_file = await self.genai_client.aio.files.upload(file=path_to_upload)
 
             while uploaded_file.state.name != "ACTIVE":
                 if uploaded_file.state.name == "FAILED":
+                    logger.error("File upload failed for '%s'.", filename)
                     return None
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
                 uploaded_file = await self.genai_client.aio.files.get(name=uploaded_file.name)
-
+            
+            logger.info("File '%s' is active.", filename)
             return types.Part.from_uri(file_uri=uploaded_file.uri, mime_type=uploaded_file.mime_type)
 
-        except Exception:
+        except Exception as e:
+            logger.error("Error during file upload for '%s': %s", filename, e, exc_info=True)
             return None

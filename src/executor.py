@@ -5,6 +5,9 @@ from google.genai import types
 from telethon import TelegramClient
 
 from src.file_manager import FileManager
+from src.logger import setup_logger
+
+logger = setup_logger("executor")
 
 
 class CommandExecutor:
@@ -21,6 +24,7 @@ class CommandExecutor:
             path = await self.tg_client.download_media(msg, file="downloads/")
             return path if path else "Failed to download media."
         except Exception as e:
+            logger.error("Error during media download: %s", e, exc_info=True)
             return f"Error during download: {e}"
 
     async def execute(self, method_name: str, args: List[Any], kwargs: Dict[str, Any]) -> Tuple[
@@ -47,4 +51,5 @@ class CommandExecutor:
             return command_str, str(result), file_part
 
         except Exception as e:
+            logger.error("Error executing command '%s': %s", command_str, e, exc_info=True)
             return command_str, f"Error: {e}", None
