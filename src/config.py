@@ -10,9 +10,6 @@ TG_API_HASH = os.getenv("TG_API_HASH")
 SESSION_FILE = "session.session"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-PROXYAPI_KEY = os.getenv("PROXYAPI_KEY")
-
-USE_PROXYAPI = False
 
 EVENT_BUFFER_TIMEOUT = 10
 
