@@ -3,7 +3,6 @@ from typing import Any
 from telethon import TelegramClient
 from telethon.tl.functions import upload
 
-from src.exceptions import SystemCommandError
 from src.file_manager import FileManager
 from src.logger import get_logger
 
@@ -31,8 +30,6 @@ class CommandExecutor:
             return str(result)
 
         except Exception as e:
-            # Catch any Telethon-specific or other errors during the request
-            logger.error("System error during request execution: %s", e, exc_info=True)
-            # We wrap it in a SystemCommandError, as the model can't fix network issues
-            # or bugs in how we execute the request.
-            raise SystemCommandError(f"Error executing API request: {e}") from e
+            # Any exception during execution is caught and re-raised.
+            # The assistant will handle logging and reporting to the model.
+            raise

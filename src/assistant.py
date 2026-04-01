@@ -1,8 +1,10 @@
 import asyncio
+import time
 from google import genai
 from google.genai import types
 from google.genai.types import HarmCategory, HarmBlockThreshold
 from telethon import TelegramClient
+from telethon.tl import types as tl_types
 
 from src.buffer import EventBuffer
 from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH)
@@ -11,18 +13,32 @@ from src.executor import CommandExecutor
 from src.file_manager import FileManager
 from src.logger import get_logger, configure_logging
 from src.parser import parse_full_api_command
-from src.exceptions import ModelCommandError, SystemCommandError
 
 # Configure logging for the entire application
 configure_logging()
 logger = get_logger("assistant")
 
+# --- Constants ---
+REQUEST_INTERVAL = 4  # seconds
+
 SAFETY_SETTINGS = [
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.BLOCK_NONE),
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.BLOCK_NONE),
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.BLOCK_NONE),
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.OFF),
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.OFF),
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.OFF),
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                        threshold=HarmBlockThreshold.BLOCK_NONE), ]
+                        threshold=HarmBlockThreshold.OFF), ]
+
+# --- Event Filtering ---
+# List of event types to ignore as they are not useful for the model
+# These are the actual Update classes from telethon.tl.types
+IGNORED_EVENT_TYPES = (
+    tl_types.UpdateUserTyping,
+    tl_types.UpdateChatUserTyping,
+    tl_types.UpdateReadHistoryOutbox,
+    tl_types.UpdateReadHistoryInbox,
+    tl_types.UpdateReadChannelInbox,
+    tl_types.UpdateReadChannelOutbox,
+)
 
 
 class TelegramAIAssistant:
@@ -40,6 +56,7 @@ class TelegramAIAssistant:
 
         self.event_buffer = EventBuffer(self._on_event_buffer_flush)
         self._processing = False
+        self._last_request_time = 0
 
     async def setup(self):
         await self.tg_client.start()
@@ -47,6 +64,11 @@ class TelegramAIAssistant:
         logger.info("Started and connected to Telegram.")
 
     async def _raw_handler(self, event):
+        # The event object itself is an instance of a tl_types class
+        if isinstance(event, IGNORED_EVENT_TYPES):
+            logger.debug("Ignoring noisy event: %s", type(event).__name__)
+            return
+
         event_str = str(event)
         logger.info(event_str)
         self.event_buffer.add_event(event_str)
@@ -65,6 +87,15 @@ class TelegramAIAssistant:
 
     async def _main_loop(self):
         try:
+            current_time = time.monotonic()
+            time_since_last_request = current_time - self._last_request_time
+            
+            if time_since_last_request < REQUEST_INTERVAL:
+                delay = REQUEST_INTERVAL - time_since_last_request
+                logger.info(f"Waiting for {delay:.2f} seconds to respect the request interval...")
+                await asyncio.sleep(delay)
+
+            self._last_request_time = time.monotonic()
             logger.info("Sending event batch to the neural network...")
             response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
                                                                            contents=self.context_mgr.get_contents(),
@@ -94,31 +125,16 @@ class TelegramAIAssistant:
                     continue
 
                 try:
-                    # Use the new parser for full API commands
                     request_object = parse_full_api_command(line)
-                    
-                    # The new executor returns a simple string result
                     res_text = await self.executor.execute(request_object)
-                    
-                    # Success: add the result to the context
-                    self.context_mgr.add_user_message(f"Command execution result:\n{res_text}")
+                    self.context_mgr.add_user_message(f"{line}\n\n{res_text}")
                     has_executed_anything = True
 
-                except ModelCommandError as e:
-                    # It's the model's fault. Let it know so it can correct itself.
-                    logger.warning("Model command error for '%s': %s", line, e)
-                    self.context_mgr.add_user_message(f"Error in generated command '{line}':\n{e}")
-                    has_executed_anything = True # We consider this an execution, as it generates a response
-
-                except SystemCommandError as e:
-                    # It's our fault (or the environment's). Log it for us, don't bother the model.
-                    logger.error("System error during command execution for '%s': %s", line, e, exc_info=True)
-                    # We don't add this to the context, as the model can't act on it.
-
                 except Exception as e:
-                    # An unexpected error. This is a bug in our code.
-                    logger.critical("An unexpected error occurred for command '%s': %s", line, e, exc_info=True)
-                    # We also don't add this to the context.
+                    # Any exception is logged as an error and sent back to the model
+                    logger.error("Error during command execution for '%s': %s", line, e, exc_info=True)
+                    self.context_mgr.add_user_message(f"{line}\n\n{e}")
+                    has_executed_anything = True
 
             if has_executed_anything:
                 if self.event_buffer.buffer:
