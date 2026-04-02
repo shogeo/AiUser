@@ -2,6 +2,9 @@ import asyncio
 from typing import List, Optional, Callable, Awaitable
 
 from src.config import EVENT_BUFFER_TIMEOUT
+from src.logger import get_logger
+
+logger = get_logger("buffer")
 
 
 class EventBuffer:
@@ -20,8 +23,14 @@ class EventBuffer:
         self._timer_task = asyncio.create_task(self._timer())
 
     async def _timer(self):
-        await asyncio.sleep(EVENT_BUFFER_TIMEOUT)
-        await self._flush()
+        try:
+            await asyncio.sleep(EVENT_BUFFER_TIMEOUT)
+            await self._flush()
+        except asyncio.CancelledError:
+            # This is expected when the timer is restarted
+            pass
+        except Exception as e:
+            logger.error(f"Error in buffer timer: {e}")
 
     async def _flush(self):
         if not self.buffer:
@@ -29,7 +38,12 @@ class EventBuffer:
         events_copy = self.buffer.copy()
         self.buffer.clear()
         self._timer_task = None
-        await self.flush_callback(events_copy)
+        try:
+            await self.flush_callback(events_copy)
+        except Exception as e:
+            logger.error(f"Error during buffer flush callback: {e}")
+            # Restore buffer if callback fails
+            self.buffer.extend(events_copy)
 
     async def force_flush(self):
         if self._timer_task:

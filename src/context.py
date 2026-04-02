@@ -4,6 +4,9 @@ from typing import List, Optional
 from google.genai import types
 
 from src.config import CONTEXT_FILE_PATH
+from src.logger import get_logger
+
+logger = get_logger("context")
 
 
 class ContextManager:
@@ -14,18 +17,27 @@ class ContextManager:
         self._save_to_file()
 
     def _load_from_file(self):
-        if CONTEXT_FILE_PATH.exists():
+        if not CONTEXT_FILE_PATH.exists():
+            return
+        try:
             with open(CONTEXT_FILE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 for item in data:
-                    self.history.append(types.Content(role=item["role"], parts=[types.Part.from_text(text=item["content"])]))
+                    self.history.append(
+                        types.Content(role=item["role"], parts=[types.Part.from_text(text=item["content"])]))
+            logger.info(f"Successfully loaded context from {CONTEXT_FILE_PATH}")
+        except (IOError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to load context from {CONTEXT_FILE_PATH}: {e}")
 
     def _save_to_file(self):
-        data = []
-        for content in self.history:
-            data.append({"role": content.role, "content": content.parts[0].text})
-        with open(CONTEXT_FILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        try:
+            data = []
+            for content in self.history:
+                data.append({"role": content.role, "content": content.parts[0].text})
+            with open(CONTEXT_FILE_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except IOError as e:
+            logger.error(f"Failed to save context to {CONTEXT_FILE_PATH}: {e}")
 
     def get_system_prompt(self) -> str:
         return self.system_prompt
