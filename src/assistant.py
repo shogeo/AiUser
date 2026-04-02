@@ -10,10 +10,9 @@ from src.buffer import EventBuffer
 from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH)
 from src.context import ContextManager
 from src.executor import CommandExecutor
-from src.logger import get_logger, configure_logging
+from src.logger import get_logger
 from src.parser import parse_full_api_command
 
-configure_logging()
 logger = get_logger("assistant")
 
 REQUEST_INTERVAL = 4
@@ -116,9 +115,19 @@ class TelegramAIAssistant:
             if line.upper() == "NONE":
                 continue
 
-            request_object = parse_full_api_command(line)
-            res_text = await self.executor.execute(request_object)
-            self.context_mgr.add_user_message(res_text)
+            res_text = ""
+            try:
+                request_object = parse_full_api_command(line)
+                res_text = await self.executor.execute(request_object)
+            except Exception as e:
+                # This block now catches errors from both parsing and execution
+                error_message = f"{type(e).__name__}: {e}"
+                logger.error(f"Error processing command '{line}': {error_message}")
+                res_text = error_message
+
+            # Format the message as per the requirement
+            formatted_result = f"{line}\n\n{res_text}"
+            self.context_mgr.add_user_message(formatted_result)
             has_executed_anything = True
 
         if has_executed_anything:
