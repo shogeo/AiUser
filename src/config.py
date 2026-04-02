@@ -14,3 +14,4 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 EVENT_BUFFER_TIMEOUT = 10
 
 SYSTEM_PROMPT_PATH = Path("system_prompt.txt")
+CONTEXT_FILE_PATH = Path("context.json")
