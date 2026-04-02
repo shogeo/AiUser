@@ -42,7 +42,6 @@ class EventBuffer:
             await self.flush_callback(events_copy)
         except Exception as e:
             logger.error(f"Error during buffer flush callback: {e}")
-            # Restore buffer if callback fails
             self.buffer.extend(events_copy)
 
     async def force_flush(self):

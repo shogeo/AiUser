@@ -21,6 +21,3 @@ if __name__ == "__main__":
         logger.info("Shutdown requested by user.")
     except Exception as e:
         logger.critical(f"An unhandled exception occurred: {e}", exc_info=True)
-        # In a real-world scenario, you might want to exit with a non-zero code
-        # import sys
-        # sys.exit(1)

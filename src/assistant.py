@@ -32,9 +32,9 @@ class TelegramAIAssistant:
 
             if not SYSTEM_PROMPT_PATH.exists():
                 raise FileNotFoundError(f"System prompt file not found at {SYSTEM_PROMPT_PATH}")
-            
+
             system_prompt_content = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
-            
+
             person_prompt_content = ""
             if PERSON_PROMPT_PATH.exists():
                 person_prompt_content = PERSON_PROMPT_PATH.read_text(encoding="utf-8").strip()
@@ -96,14 +96,11 @@ class TelegramAIAssistant:
         logger.info("Sending event batch to the neural network...")
 
         try:
-            response = await self.genai_client.aio.models.generate_content(
-                model="gemini-3.1-flash-lite-preview",
-                contents=self.context_mgr.get_contents(),
-                config=types.GenerateContentConfig(
-                    system_instruction=self.context_mgr.get_system_prompt(),
-                    safety_settings=SAFETY_SETTINGS,
-                )
-            )
+            response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
+                                                                           contents=self.context_mgr.get_contents(),
+                                                                           config=types.GenerateContentConfig(
+                                                                               system_instruction=self.context_mgr.get_system_prompt(),
+                                                                               safety_settings=SAFETY_SETTINGS, ))
             model_reply = response.text.strip()
         except Exception as e:
             logger.error(f"Neural network API call failed: {e}")
@@ -126,17 +123,14 @@ class TelegramAIAssistant:
             if line.upper() == "NONE":
                 continue
 
-            res_text = ""
             try:
                 request_object = parse_full_api_command(line)
                 res_text = await self.executor.execute(request_object)
             except Exception as e:
-                # This block now catches errors from both parsing and execution
                 error_message = f"{type(e).__name__}: {e}"
                 logger.error(f"Error processing command '{line}': {error_message}")
                 res_text = error_message
 
-            # Format the message as per the requirement
             formatted_result = f"{line}\n\n{res_text}"
             self.context_mgr.add_user_message(formatted_result)
             has_executed_anything = True

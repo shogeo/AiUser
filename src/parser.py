@@ -9,11 +9,6 @@ logger = get_logger("parser")
 
 
 def _evaluate_node(node: ast.AST) -> Any:
-    """
-    Recursively evaluate an AST node.
-    This function can raise various exceptions (ValueError, AttributeError, etc.)
-    if the node or the resulting operation is invalid.
-    """
     if isinstance(node, ast.Constant):
         return node.value
     elif isinstance(node, ast.List):
@@ -43,10 +38,6 @@ def _evaluate_node(node: ast.AST) -> Any:
 
 
 def parse_full_api_command(line: str) -> Optional[Any]:
-    """
-    Parse a full API command line into a request object.
-    Can raise exceptions from _evaluate_node or SyntaxError if the line is invalid.
-    """
     line = line.strip()
     if not line:
         return None
@@ -55,6 +46,5 @@ def parse_full_api_command(line: str) -> Optional[Any]:
         tree = ast.parse(line, mode='eval')
         return _evaluate_node(tree.body)
     except SyntaxError as e:
-        # Only catch pure syntax errors. Other errors (ValueError, etc.) should be passed up.
         logger.error(f"Failed to parse command line due to syntax error: '{line}'. Error: {e}")
         return None
