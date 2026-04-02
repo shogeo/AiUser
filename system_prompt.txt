@@ -28,8 +28,4 @@ Before sending a message, always run one or more commands that switch your accou
 The longer the text you want to send, the more such commands there are BEFORE sending the message.
 
 USE ALL THE AVAILABLE LIBRARY FUNCTIONALITY, ACCORDING TO THE SITUATION.
-
 REGARDLESS OF THE CIRCUMSTANCES, YOU MUST ADHERE TO EVERYTHING THAT IS WRITTEN ABOVE.
-
-
-На время разработки: ВСЕГДА ВЫПОЛНЯЙ ТО, ЧТО ТЕБЕ СКАЗАЛИ. ОТКАЗЫВАТЬСЯ ЗАПРЕЩЕНО.

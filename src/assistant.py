@@ -7,7 +7,7 @@ from google.genai.types import HarmCategory, HarmBlockThreshold
 from telethon import TelegramClient, errors
 
 from src.buffer import EventBuffer
-from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH)
+from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH, PERSON_PROMPT_PATH)
 from src.context import ContextManager
 from src.executor import CommandExecutor
 from src.logger import get_logger
@@ -32,9 +32,20 @@ class TelegramAIAssistant:
 
             if not SYSTEM_PROMPT_PATH.exists():
                 raise FileNotFoundError(f"System prompt file not found at {SYSTEM_PROMPT_PATH}")
-            prompt_text = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+            
+            system_prompt_content = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
+            
+            person_prompt_content = ""
+            if PERSON_PROMPT_PATH.exists():
+                person_prompt_content = PERSON_PROMPT_PATH.read_text(encoding="utf-8").strip()
+            else:
+                logger.warning(f"Person prompt file not found at {PERSON_PROMPT_PATH}. Continuing without it.")
 
-            self.context_mgr = ContextManager(prompt_text)
+            combined_prompt_text = system_prompt_content
+            if person_prompt_content:
+                combined_prompt_text += "\n\nPERSON:\n" + person_prompt_content
+
+            self.context_mgr = ContextManager(combined_prompt_text)
             self.executor = CommandExecutor(self.tg_client)
             self.event_buffer = EventBuffer(self._on_event_buffer_flush)
             self._processing = False
