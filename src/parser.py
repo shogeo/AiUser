@@ -21,7 +21,7 @@ def _evaluate_node(node: ast.AST) -> Any:
         right = _evaluate_node(node.right)
         if isinstance(node.op, ast.BitOr):
             return operator.or_(left, right)
-        raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
+        return None
 
     elif isinstance(node, ast.Name):
         return importlib.import_module(node.id)
@@ -39,13 +39,13 @@ def _evaluate_node(node: ast.AST) -> Any:
         return callable_obj(*args, **kwargs)
 
     else:
-        raise ValueError(f"Unsupported syntax node: {type(node).__name__}")
+        return None
 
 
 def parse_full_api_command(line: str) -> Any:
     line = line.strip()
     if not line:
-        raise ValueError("Command line is empty.")
+        return None
 
     tree = ast.parse(line, mode='eval')
     return _evaluate_node(tree.body)

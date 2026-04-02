@@ -20,11 +20,8 @@ class EventBuffer:
         self._timer_task = asyncio.create_task(self._timer())
 
     async def _timer(self):
-        try:
-            await asyncio.sleep(EVENT_BUFFER_TIMEOUT)
-            await self._flush()
-        except asyncio.CancelledError:
-            pass
+        await asyncio.sleep(EVENT_BUFFER_TIMEOUT)
+        await self._flush()
 
     async def _flush(self):
         if not self.buffer:

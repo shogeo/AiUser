@@ -30,8 +30,6 @@ class TelegramAIAssistant:
         self.tg_client = TelegramClient(SESSION_FILE, TG_API_ID, TG_API_HASH)
         self.genai_client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1beta'})
 
-        if not SYSTEM_PROMPT_PATH.exists():
-            raise FileNotFoundError(f"Prompt file missing: {SYSTEM_PROMPT_PATH}")
         prompt_text = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
 
         self.context_mgr = ContextManager(prompt_text)
@@ -77,10 +75,6 @@ class TelegramAIAssistant:
                                                                        config=types.GenerateContentConfig(
                                                                            system_instruction=self.context_mgr.get_system_prompt(),
                                                                            safety_settings=SAFETY_SETTINGS, ))
-
-        if not response.text:
-            logger.warning("Neural network returned no text. Ending loop.")
-            return
 
         model_reply = response.text.strip()
         logger.info("Neural network response:\n%s", model_reply)
