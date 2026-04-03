@@ -1,7 +1,7 @@
 import ast
 import importlib
 import operator
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
 from src.logger import get_logger
 
@@ -9,6 +9,7 @@ logger = get_logger("parser")
 
 
 def _evaluate_node(node: ast.AST) -> Any:
+    """Recursively evaluates an AST node to a Python object."""
     if isinstance(node, ast.Constant):
         return node.value
     elif isinstance(node, ast.List):
@@ -37,14 +38,56 @@ def _evaluate_node(node: ast.AST) -> Any:
         raise ValueError(f"Unsupported syntax node: {type(node).__name__}")
 
 
-def parse_full_api_command(line: str) -> Optional[Any]:
+def parse_command(line: str) -> Optional[Dict[str, Any]]:
+    """
+    Parses a command line into a structured dictionary for the executor.
+    Differentiates between high-level ('client.') and low-level ('telethon.') commands.
+    """
     line = line.strip()
     if not line:
         return None
 
     try:
-        tree = ast.parse(line, mode='eval')
-        return _evaluate_node(tree.body)
+        tree = ast.parse(line, mode='eval').body
     except SyntaxError as e:
         logger.error(f"Failed to parse command line due to syntax error: '{line}'. Error: {e}")
+        return None
+
+    if not isinstance(tree, ast.Call):
+        logger.warning(f"Command is not a function call, trying to evaluate directly: '{line}'")
+        try:
+            return {
+                "type": "low_level",
+                "request_object": _evaluate_node(tree)
+            }
+        except Exception as e:
+            logger.error(f"Failed to evaluate non-call command '{line}': {e}")
+            return None
+
+    # Check for high-level 'client.' calls
+    func_node = tree.func
+    if isinstance(func_node, ast.Attribute) and isinstance(func_node.value, ast.Name) and func_node.value.id == 'client':
+        method_name = func_node.attr
+        try:
+            args = [_evaluate_node(arg) for arg in tree.args]
+            kwargs = {kw.arg: _evaluate_node(kw.value) for kw in tree.keywords if kw.arg}
+            return {
+                "type": "high_level",
+                "method_name": method_name,
+                "args": args,
+                "kwargs": kwargs,
+            }
+        except Exception as e:
+            logger.error(f"Failed to evaluate arguments for high-level command '{line}': {e}")
+            return None
+
+    # Otherwise, treat as a low-level command
+    try:
+        request_object = _evaluate_node(tree)
+        return {
+            "type": "low_level",
+            "request_object": request_object
+        }
+    except Exception as e:
+        logger.error(f"Failed to parse low-level command '{line}': {e}")
         return None

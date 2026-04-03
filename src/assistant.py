@@ -11,7 +11,7 @@ from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SY
 from src.context import ContextManager
 from src.executor import CommandExecutor
 from src.logger import get_logger
-from src.parser import parse_full_api_command
+from src.parser import parse_command
 
 logger = get_logger("assistant")
 
@@ -124,8 +124,8 @@ class TelegramAIAssistant:
                 continue
 
             try:
-                request_object = parse_full_api_command(line)
-                res_text = await self.executor.execute(request_object)
+                command_object = parse_command(line)
+                res_text = await self.executor.execute(command_object)
             except Exception as e:
                 error_message = f"{type(e).__name__}: {e}"
                 logger.error(f"Error processing command '{line}': {error_message}")
