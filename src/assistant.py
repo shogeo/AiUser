@@ -135,9 +135,8 @@ class TelegramAIAssistant:
                 else:
                     res_text = execution_result
             except Exception as e:
-                error_message = f"{type(e).__name__}: {e}"
-                logger.error(f"Error processing command '{line}': {error_message}")
-                res_text = error_message
+                logger.error(f"Error processing command '{line}': {e}")
+                res_text = str(e)
                 file_part = None
 
             formatted_result = f"{line}\n\n{res_text}"

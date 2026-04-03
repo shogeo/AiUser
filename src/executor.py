@@ -40,53 +40,39 @@ class CommandExecutor:
 
     async def execute(self, command: Dict[str, Any]) -> Union[str, Tuple[str, types.Part]]:
         if not command:
-            return "Invalid command object."
+            raise ValueError("Invalid command object received.")
 
         command_type = command.get("type")
 
-        try:
-            if command_type == "high_level":
-                method_name = command["method_name"]
-                args = command.get("args", [])
-                kwargs = command.get("kwargs", {})
+        if command_type == "high_level":
+            method_name = command["method_name"]
+            args = command.get("args", [])
+            kwargs = command.get("kwargs", {})
 
-                if method_name == "download_media":
-                    # Strict argument parsing as requested.
-                    if len(args) == 1 and "message_id" in kwargs and len(kwargs) == 1:
-                        chat_id = args[0]
-                        message_id = kwargs["message_id"]
-                    else:
-                        raise ValueError(
-                            "Incorrect arguments for download_media. "
-                            "Expected signature: download_media(entity, message_id=...)"
-                        )
+            if method_name == "download_media":
+                chat_id = args[0]
+                message_id = kwargs["message_id"]
+                message = await self.tg_client.get_messages(chat_id, ids=message_id)
+                if not message or not message.media:
+                    raise ValueError("Message or media not found.")
+                return await self._download_and_upload(lambda path: message.download_media(file=path))
 
-                    message = await self.tg_client.get_messages(chat_id, ids=message_id)
-                    if not message or not message.media:
-                        return "Message or media not found."
-                    return await self._download_and_upload(lambda path: message.download_media(file=path))
-
-                elif method_name == "download_profile_photo":
-                    entity = await self.tg_client.get_entity(args[0])
-                    return await self._download_and_upload(
-                        lambda path: self.tg_client.download_profile_photo(entity, file=path))
-
-                else:
-                    method_to_call = getattr(self.tg_client, method_name)
-                    result = await method_to_call(*args, **kwargs)
-
-            elif command_type == "low_level":
-                request_object = command.get("request_object")
-                if request_object is None:
-                    return "No request object found for low-level command."
-                result = await self.tg_client(request_object)
+            elif method_name == "download_profile_photo":
+                entity = await self.tg_client.get_entity(args[0])
+                return await self._download_and_upload(
+                    lambda path: self.tg_client.download_profile_photo(entity, file=path))
 
             else:
-                return f"Unknown command type: {command_type}"
+                method_to_call = getattr(self.tg_client, method_name)
+                result = await method_to_call(*args, **kwargs)
 
-            return str(result) if result is not None else "None"
+        elif command_type == "low_level":
+            request_object = command.get("request_object")
+            if request_object is None:
+                raise ValueError("No request object found for low-level command.")
+            result = await self.tg_client(request_object)
 
-        except Exception as e:
-            error_message = f"{type(e).__name__}: {e}"
-            logger.error(f"Error executing command {command}: {error_message}")
-            return error_message
+        else:
+            raise ValueError(f"Unknown command type: {command_type}")
+
+        return str(result) if result is not None else "None"
