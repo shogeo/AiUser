@@ -16,7 +16,7 @@ from src.parser import parse_command
 
 logger = get_logger("assistant")
 
-REQUEST_INTERVAL = 4
+REQUEST_INTERVAL = 5
 
 SAFETY_SETTINGS = [
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.OFF),
@@ -47,7 +47,7 @@ class TelegramAIAssistant:
                 combined_prompt_text += "\n\nPERSON:\n" + person_prompt_content
 
             self.context_mgr = ContextManager(combined_prompt_text)
-            self.executor = CommandExecutor(self.tg_client, self.genai_client) # Pass genai_client here
+            self.executor = CommandExecutor(self.tg_client, self.genai_client)
             self.event_buffer = EventBuffer(self._on_event_buffer_flush)
             self._processing = False
             self._last_request_time = 0
@@ -138,7 +138,7 @@ class TelegramAIAssistant:
                 error_message = f"{type(e).__name__}: {e}"
                 logger.error(f"Error processing command '{line}': {error_message}")
                 res_text = error_message
-                file_part = None # Ensure file_part is None on error
+                file_part = None
 
             formatted_result = f"{line}\n\n{res_text}"
             self.context_mgr.add_user_message(formatted_result, file_part=file_part)
