@@ -14,7 +14,7 @@ logger = get_logger("executor")
 class CommandExecutor:
     def __init__(self, tg_client: TelegramClient, genai_client: genai.Client):
         self.tg_client = tg_client
-        # The genai_client is not used here, but kept for future consistency.
+        self.genai_client = genai_client
 
     async def _download_and_upload(self, download_coro) -> Tuple[str, types.Part]:
         download_path = "downloads/"
@@ -26,13 +26,14 @@ class CommandExecutor:
 
         try:
             logger.info(f"Uploading file {local_path} to Google...")
-            # Correct path to file API functions
-            google_file = genai.files.upload_file(path=local_path)
+            # CORRECT KEYWORD ARGUMENT: file=
+            google_file = await self.genai_client.aio.files.upload(file=local_path)
 
             while google_file.state.name != "ACTIVE":
+                if google_file.state.name == "FAILED":
+                    raise ConnectionError(f"File upload failed for '{local_path}'. State: FAILED")
                 await asyncio.sleep(1)
-                # Correct path to file API functions
-                google_file = genai.files.get_file(name=google_file.name)
+                google_file = await self.genai_client.aio.files.get(name=google_file.name)
 
             logger.info(f"File {google_file.name} is now ACTIVE.")
             return str(local_path), types.Part.from_uri(google_file.uri, mime_type=google_file.mime_type)
