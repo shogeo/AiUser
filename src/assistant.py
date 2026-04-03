@@ -1,5 +1,6 @@
 import asyncio
 import time
+from typing import Tuple, Union
 
 from google import genai
 from google.genai import types
@@ -46,7 +47,7 @@ class TelegramAIAssistant:
                 combined_prompt_text += "\n\nPERSON:\n" + person_prompt_content
 
             self.context_mgr = ContextManager(combined_prompt_text)
-            self.executor = CommandExecutor(self.tg_client)
+            self.executor = CommandExecutor(self.tg_client, self.genai_client) # Pass genai_client here
             self.event_buffer = EventBuffer(self._on_event_buffer_flush)
             self._processing = False
             self._last_request_time = 0
@@ -123,16 +124,24 @@ class TelegramAIAssistant:
             if line.upper() == "NONE":
                 continue
 
+            res_text: str = ""
+            file_part: types.Part = None
             try:
                 command_object = parse_command(line)
-                res_text = await self.executor.execute(command_object)
+                execution_result: Union[str, Tuple[str, types.Part]] = await self.executor.execute(command_object)
+
+                if isinstance(execution_result, tuple):
+                    res_text, file_part = execution_result
+                else:
+                    res_text = execution_result
             except Exception as e:
                 error_message = f"{type(e).__name__}: {e}"
                 logger.error(f"Error processing command '{line}': {error_message}")
                 res_text = error_message
+                file_part = None # Ensure file_part is None on error
 
             formatted_result = f"{line}\n\n{res_text}"
-            self.context_mgr.add_user_message(formatted_result)
+            self.context_mgr.add_user_message(formatted_result, file_part=file_part)
             has_executed_anything = True
 
         if has_executed_anything:
