@@ -26,7 +26,6 @@ class CommandExecutor:
 
         try:
             logger.info(f"Uploading file {local_path} to Google...")
-            # CORRECT KEYWORD ARGUMENT: file=
             google_file = await self.genai_client.aio.files.upload(file=local_path)
 
             while google_file.state.name != "ACTIVE":
@@ -36,7 +35,8 @@ class CommandExecutor:
                 google_file = await self.genai_client.aio.files.get(name=google_file.name)
 
             logger.info(f"File {google_file.name} is now ACTIVE.")
-            return str(local_path), types.Part.from_uri(google_file.uri, mime_type=google_file.mime_type)
+            # CORRECT KEYWORD ARGUMENT: file_uri=
+            return str(local_path), types.Part.from_uri(file_uri=google_file.uri, mime_type=google_file.mime_type)
         finally:
             if os.path.exists(local_path):
                 os.remove(local_path)
