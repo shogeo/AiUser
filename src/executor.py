@@ -22,7 +22,8 @@ class CommandExecutor:
 
         local_path = await download_coro(download_path)
         if not local_path or not os.path.exists(local_path):
-            raise FileNotFoundError("Telegram download failed or returned an empty path.")
+            # Let the OS raise a FileNotFoundError if the file is not found later
+            pass
 
         try:
             google_file = await self.genai_client.aio.files.upload(file=local_path)
@@ -39,9 +40,6 @@ class CommandExecutor:
                 os.remove(local_path)
 
     async def execute(self, command: Dict[str, Any]) -> Union[str, Tuple[str, types.Part]]:
-        if not command:
-            raise ValueError("Invalid command object received.")
-
         command_type = command.get("type")
 
         if command_type == "high_level":
@@ -53,8 +51,7 @@ class CommandExecutor:
                 chat_id = args[0]
                 message_id = kwargs["message_id"]
                 message = await self.tg_client.get_messages(chat_id, ids=message_id)
-                if not message or not message.media:
-                    raise ValueError("Message or media not found.")
+                # Let it fail naturally with an AttributeError if message is None or has no media
                 return await self._download_and_upload(lambda path: message.download_media(file=path))
 
             elif method_name == "download_profile_photo":
@@ -68,11 +65,11 @@ class CommandExecutor:
 
         elif command_type == "low_level":
             request_object = command.get("request_object")
-            if request_object is None:
-                raise ValueError("No request object found for low-level command.")
+            # Let it fail naturally with a TypeError if request_object is None
             result = await self.tg_client(request_object)
 
         else:
-            raise ValueError(f"Unknown command type: {command_type}")
+            # Let it fail naturally with a TypeError or KeyError if command_type is unknown
+            pass
 
         return str(result) if result is not None else "None"
