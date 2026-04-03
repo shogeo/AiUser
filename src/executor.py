@@ -22,8 +22,6 @@ class CommandExecutor:
                 method_name = command["method_name"]
                 args = command.get("args", [])
                 kwargs = command.get("kwargs", {})
-
-                logger.info(f"Executing high-level command: client.{method_name}")
                 method_to_call = getattr(self.tg_client, method_name)
                 result = await method_to_call(*args, **kwargs)
 
@@ -31,8 +29,6 @@ class CommandExecutor:
                 request_object = command.get("request_object")
                 if request_object is None:
                     return "No request object found for low-level command."
-
-                logger.info(f"Executing low-level command: {request_object.__class__.__name__}")
                 result = await self.tg_client(request_object)
 
             else:
