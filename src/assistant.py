@@ -89,74 +89,71 @@ class TelegramAIAssistant:
             self._processing = False
 
     async def _main_loop(self):
+        current_time = time.monotonic()
+        time_since_last_request = current_time - self._last_request_time
+        if time_since_last_request < REQUEST_INTERVAL:
+            await asyncio.sleep(REQUEST_INTERVAL - time_since_last_request)
+
+        self._last_request_time = time.monotonic()
+        logger.info("Sending event batch to the neural network...")
+
         try:
-            current_time = time.monotonic()
-            time_since_last_request = current_time - self._last_request_time
-            if time_since_last_request < REQUEST_INTERVAL:
-                await asyncio.sleep(REQUEST_INTERVAL - time_since_last_request)
-
-            self._last_request_time = time.monotonic()
-            logger.info("Sending event batch to the neural network...")
-
-            try:
-                response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
-                                                                               contents=self.context_mgr.get_contents(),
-                                                                               config=types.GenerateContentConfig(
-                                                                                   system_instruction=self.context_mgr.get_system_prompt(),
-                                                                                   safety_settings=SAFETY_SETTINGS, ))
-                model_reply = response.text.strip()
-            except Exception as e:
-                logger.error("Neural network API call failed: %s", e)
-                return
-
-            if not model_reply or model_reply.upper() == "NONE":
-                logger.info("Neural network returned no actionable response.")
-                return
-
-            logger.info("Neural network response:\n%s", model_reply)
-            self.context_mgr.add_model_message(model_reply)
-
-            command_lines = [l.strip() for l in model_reply.split("\n") if l.strip()]
-            if not command_lines:
-                return
-
-            logger.info("Executing commands...")
-            has_executed_anything = False
-            for line in command_lines:
-                if line.upper() == "NONE":
-                    continue
-
-                res_text: str = ""
-                file_part: types.Part = None
-                try:
-                    command_object = parse_command(line)
-                    execution_result: Union[str, Tuple[str, types.Part]] = await self.executor.execute(command_object)
-
-                    if execution_result == "SYSTEM_ERROR":
-                        continue
-
-                    if isinstance(execution_result, tuple):
-                        res_text, file_part = execution_result
-                    else:
-                        res_text = execution_result
-
-                except ModelVisibleError as e:
-                    logger.warning("Command failed with model-visible error: %s", e)
-                    res_text = str(e)
-                    file_part = None
-
-                formatted_result = f"{line}\n\n{res_text}"
-                self.context_mgr.add_user_message(formatted_result, file_part=file_part)
-                has_executed_anything = True
-
-            if has_executed_anything:
-                if self.event_buffer.buffer:
-                    new_events = "\n".join(self.event_buffer.buffer)
-                    self.event_buffer.buffer.clear()
-                    self.context_mgr.add_user_message(new_events)
-                await self._main_loop()
+            response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
+                                                                           contents=self.context_mgr.get_contents(),
+                                                                           config=types.GenerateContentConfig(
+                                                                               system_instruction=self.context_mgr.get_system_prompt(),
+                                                                               safety_settings=SAFETY_SETTINGS, ))
+            model_reply = response.text.strip()
         except Exception as e:
-            logger.error("Error in main loop: %s", e)
+            logger.error("Neural network API call failed: %s", e)
+            return
+
+        if not model_reply or model_reply.upper() == "NONE":
+            logger.info("Neural network returned no actionable response.")
+            return
+
+        logger.info("Neural network response:\n%s", model_reply)
+        self.context_mgr.add_model_message(model_reply)
+
+        command_lines = [l.strip() for l in model_reply.split("\n") if l.strip()]
+        if not command_lines:
+            return
+
+        logger.info("Executing commands...")
+        has_executed_anything = False
+        for line in command_lines:
+            if line.upper() == "NONE":
+                continue
+
+            res_text: str = ""
+            file_part: types.Part = None
+            try:
+                command_object = parse_command(line)
+                execution_result: Union[str, Tuple[str, types.Part]] = await self.executor.execute(command_object)
+
+                if execution_result == "SYSTEM_ERROR":
+                    continue  # Skip adding to context, already logged
+
+                if isinstance(execution_result, tuple):
+                    res_text, file_part = execution_result
+                else:
+                    res_text = execution_result
+
+            except ModelVisibleError as e:
+                logger.warning("Command failed with model-visible error: %s", e)
+                res_text = str(e)
+                file_part = None
+
+            formatted_result = f"{line}\n\n{res_text}"
+            self.context_mgr.add_user_message(formatted_result, file_part=file_part)
+            has_executed_anything = True
+
+        if has_executed_anything:
+            if self.event_buffer.buffer:
+                new_events = "\n".join(self.event_buffer.buffer)
+                self.event_buffer.buffer.clear()
+                self.context_mgr.add_user_message(new_events)
+            await self._main_loop()
 
     async def run(self):
         if not self.is_running or not await self.setup():
