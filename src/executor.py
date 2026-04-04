@@ -1,10 +1,11 @@
 import asyncio
 import importlib
 import os
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict
 
 from google import genai
 from google.genai import types
+from google.genai.types import Part
 from telethon import TelegramClient
 from telethon.errors import RPCError
 
@@ -30,7 +31,7 @@ class CommandExecutor:
         self.tg_client = tg_client
         self.genai_client = genai_client
 
-    async def _download_and_upload(self, download_coro) -> Tuple[str, types.Part]:
+    async def _download_and_upload(self, download_coro) -> tuple[str, None] | tuple[str, Part]:
         download_path = "downloads/"
         os.makedirs(download_path, exist_ok=True)
 
@@ -53,7 +54,7 @@ class CommandExecutor:
             if os.path.exists(local_path):
                 os.remove(local_path)
 
-    async def execute(self, command: Dict[str, Any]) -> Union[str, Tuple[str, types.Part]]:
+    async def execute(self, command: Dict[str, Any]) -> str | tuple[str, None] | tuple[str, Part]:
         try:
             command_type = command.get("type")
             args = command.get("args", [])

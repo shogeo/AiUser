@@ -125,14 +125,13 @@ class TelegramAIAssistant:
             if line.upper() == "NONE":
                 continue
 
-            res_text: str = ""
             file_part: types.Part = None
             try:
                 command_object = parse_command(line)
                 execution_result: Union[str, Tuple[str, types.Part]] = await self.executor.execute(command_object)
 
                 if execution_result == "SYSTEM_ERROR":
-                    continue  # Skip adding to context, already logged
+                    continue
 
                 if isinstance(execution_result, tuple):
                     res_text, file_part = execution_result

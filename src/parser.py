@@ -1,4 +1,5 @@
 import ast
+import importlib
 from typing import Any, Dict
 
 from src.exceptions import ParsingError
@@ -25,10 +26,22 @@ def _evaluate_node(node: ast.AST) -> Any:
         values = [_evaluate_node(v) for v in node.values]
         return dict(zip(keys, values))
     if isinstance(node, ast.Name):
-        # This is a simple case, might need to be more robust
-        # depending on what the model is expected to pass.
-        # For now, we assume it's a string-like name.
-        return node.id
+        try:
+            return importlib.import_module(node.id)
+        except ImportError:
+            raise ParsingError(f"Could not resolve name: {node.id}")
+    if isinstance(node, ast.Attribute):
+        parent_obj = _evaluate_node(node.value)
+        try:
+            return getattr(parent_obj, node.attr)
+        except AttributeError:
+            raise ParsingError(f"Could not find attribute '{node.attr}' on '{parent_obj}'")
+    if isinstance(node, ast.Call):
+        callable_obj = _evaluate_node(node.func)
+        args = [_evaluate_node(arg) for arg in node.args]
+        kwargs = {kw.arg: _evaluate_node(kw.value) for kw in node.keywords if kw.arg}
+        return callable_obj(*args, **kwargs)
+
     raise ParsingError(f"Unsupported syntax node for argument: {type(node).__name__}")
 
 
@@ -47,30 +60,19 @@ def parse_command(line: str) -> Dict[str, Any]:
 
     func_node = tree.func
 
-    # High-level commands: client.method_name(...)
-    if isinstance(func_node, ast.Attribute) and isinstance(func_node.value,
-                                                           ast.Name) and func_node.value.id == 'client':
-        method_name = func_node.attr
-        try:
-            args = [_evaluate_node(arg) for arg in tree.args]
-            kwargs = {kw.arg: _evaluate_node(kw.value) for kw in tree.keywords if kw.arg}
-            return {"type": "high_level", "method_name": method_name, "args": args, "kwargs": kwargs, }
-        except ParsingError as e:
-            # Re-raise parsing errors from argument evaluation
-            raise e
-        except Exception as e:
-            # Catch any other unexpected errors during arg evaluation
-            raise ParsingError(f"Failed to evaluate arguments for high-level command: {e}") from e
-
-    # Low-level commands: telethon.tl.functions.messages.SendMessageRequest(...)
     try:
-        full_path = _get_full_path(func_node)
         args = [_evaluate_node(arg) for arg in tree.args]
         kwargs = {kw.arg: _evaluate_node(kw.value) for kw in tree.keywords if kw.arg}
+
+        if isinstance(func_node, ast.Attribute) and isinstance(func_node.value,
+                                                               ast.Name) and func_node.value.id == 'client':
+            method_name = func_node.attr
+            return {"type": "high_level", "method_name": method_name, "args": args, "kwargs": kwargs, }
+
+        full_path = _get_full_path(func_node)
         return {"type": "low_level", "full_path": full_path, "args": args, "kwargs": kwargs, }
+
     except ParsingError as e:
-        # Re-raise parsing errors from path or argument evaluation
         raise e
     except Exception as e:
-        # Catch any other unexpected errors
-        raise ParsingError(f"Failed to parse low-level command: {e}") from e
+        raise ParsingError(f"Failed to parse arguments or command structure: {e}") from e
