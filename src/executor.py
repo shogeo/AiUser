@@ -4,7 +4,8 @@ from typing import Any, Dict, Tuple, Union
 
 from google import genai
 from google.genai import types
-from telethon import TelegramClient, errors
+from telethon import TelegramClient
+from telethon.errors import RPCError
 
 from src.exceptions import MethodNotFoundError, ArgumentError, ExecutionError
 from src.logger import get_logger
@@ -74,9 +75,9 @@ class CommandExecutor:
 
         except AttributeError as e:
             raise MethodNotFoundError(str(e)) from e
-        except TypeError as e:
+        except (TypeError, ValueError) as e:
             raise ArgumentError(str(e)) from e
-        except errors.RpcError as e:
+        except RPCError as e:
             raise ExecutionError(f"{type(e).__name__}: {e}") from e
         except Exception as e:
             logger.error("Unhandled system exception in CommandExecutor: %s", e)
