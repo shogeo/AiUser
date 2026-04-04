@@ -30,7 +30,7 @@ class EventBuffer:
             # This is expected when the timer is restarted
             pass
         except Exception as e:
-            logger.error(f"Error in buffer timer: {e}")
+            logger.error("Error in buffer timer: %s", e)
 
     async def _flush(self):
         if not self.buffer:
@@ -41,7 +41,7 @@ class EventBuffer:
         try:
             await self.flush_callback(events_copy)
         except Exception as e:
-            logger.error(f"Error during buffer flush callback: {e}")
+            logger.error("Error during buffer flush callback: %s", e)
             self.buffer.extend(events_copy)
 
     async def force_flush(self):

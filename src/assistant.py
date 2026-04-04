@@ -1,5 +1,6 @@
 import asyncio
 import time
+from typing import Tuple, Union
 
 from google import genai
 from google.genai import types
@@ -9,13 +10,14 @@ from telethon import TelegramClient, errors
 from src.buffer import EventBuffer
 from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH, PERSON_PROMPT_PATH)
 from src.context import ContextManager
+from src.exceptions import ParsingError, MethodNotFoundError, ArgumentError, ExecutionError
 from src.executor import CommandExecutor
 from src.logger import get_logger
 from src.parser import parse_command
 
 logger = get_logger("assistant")
 
-REQUEST_INTERVAL = 4
+REQUEST_INTERVAL = 5
 
 SAFETY_SETTINGS = [
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.OFF),
@@ -46,13 +48,13 @@ class TelegramAIAssistant:
                 combined_prompt_text += "\n\nPERSON:\n" + person_prompt_content
 
             self.context_mgr = ContextManager(combined_prompt_text)
-            self.executor = CommandExecutor(self.tg_client)
+            self.executor = CommandExecutor(self.tg_client, self.genai_client)
             self.event_buffer = EventBuffer(self._on_event_buffer_flush)
             self._processing = False
             self._last_request_time = 0
             self.is_running = True
         except Exception as e:
-            logger.critical(f"Failed to initialize assistant: {e}")
+            logger.critical("Failed to initialize assistant: %s", e)
             self.is_running = False
 
     async def setup(self):
@@ -61,10 +63,10 @@ class TelegramAIAssistant:
             self.tg_client.add_event_handler(self._raw_handler)
             logger.info("Started and connected to Telegram.")
             return True
-        except errors.ApiIdInvalidError:
-            logger.critical("Telegram API ID/Hash is invalid.")
+        except errors.ApiIdInvalidError as e:
+            logger.critical("Telegram API ID/Hash is invalid: %s", e)
         except Exception as e:
-            logger.critical(f"Failed to connect to Telegram: {e}")
+            logger.critical("Failed to connect to Telegram: %s", e)
         return False
 
     async def _raw_handler(self, event):
@@ -82,7 +84,7 @@ class TelegramAIAssistant:
             self.context_mgr.add_user_message("\n".join(events_list))
             await self._main_loop()
         except Exception as e:
-            logger.error(f"Error in main processing loop: {e}", exc_info=True)
+            logger.error("Error in main processing loop: %s", e)
         finally:
             self._processing = False
 
@@ -103,7 +105,7 @@ class TelegramAIAssistant:
                                                                                safety_settings=SAFETY_SETTINGS, ))
             model_reply = response.text.strip()
         except Exception as e:
-            logger.error(f"Neural network API call failed: {e}")
+            logger.error("Neural network API call failed: %s", e)
             return
 
         if not model_reply or model_reply.upper() == "NONE":
@@ -123,16 +125,26 @@ class TelegramAIAssistant:
             if line.upper() == "NONE":
                 continue
 
+            file_part: types.Part = None
             try:
                 command_object = parse_command(line)
-                res_text = await self.executor.execute(command_object)
-            except Exception as e:
-                error_message = f"{type(e).__name__}: {e}"
-                logger.error(f"Error processing command '{line}': {error_message}")
-                res_text = error_message
+                execution_result: Union[str, Tuple[str, types.Part]] = await self.executor.execute(command_object)
+
+                if execution_result == "SYSTEM_ERROR":
+                    continue
+
+                if isinstance(execution_result, tuple):
+                    res_text, file_part = execution_result
+                else:
+                    res_text = execution_result
+
+            except (ParsingError, MethodNotFoundError, ArgumentError, ExecutionError) as e:
+                logger.warning("Command failed: %s", e)
+                res_text = str(e)
+                file_part = None
 
             formatted_result = f"{line}\n\n{res_text}"
-            self.context_mgr.add_user_message(formatted_result)
+            self.context_mgr.add_user_message(formatted_result, file_part=file_part)
             has_executed_anything = True
 
         if has_executed_anything:
