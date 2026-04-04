@@ -10,7 +10,7 @@ from telethon import TelegramClient, errors
 from src.buffer import EventBuffer
 from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH, PERSON_PROMPT_PATH)
 from src.context import ContextManager
-from src.exceptions import ModelVisibleError
+from src.exceptions import ParsingError, MethodNotFoundError, ArgumentError, ExecutionError
 from src.executor import CommandExecutor
 from src.logger import get_logger
 from src.parser import parse_command
@@ -139,8 +139,8 @@ class TelegramAIAssistant:
                 else:
                     res_text = execution_result
 
-            except ModelVisibleError as e:
-                logger.warning("Command failed with model-visible error: %s", e)
+            except (ParsingError, MethodNotFoundError, ArgumentError, ExecutionError) as e:
+                logger.warning("Command failed: %s", e)
                 res_text = str(e)
                 file_part = None
 
