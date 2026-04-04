@@ -1,8 +1,9 @@
 import ast
 import importlib
 import operator
-from typing import Any, Optional, Dict
+from typing import Any, Dict
 
+from src.exceptions import ParsingError
 from src.logger import get_logger
 
 logger = get_logger("parser")
@@ -22,7 +23,7 @@ def _evaluate_node(node: ast.AST) -> Any:
         right = _evaluate_node(node.right)
         if isinstance(node.op, ast.BitOr):
             return operator.or_(left, right)
-        raise ValueError(f"Unsupported binary operator: {type(node.op).__name__}")
+        raise ParsingError(f"Unsupported binary operator: {type(node.op).__name__}")
     elif isinstance(node, ast.Name):
         return importlib.import_module(node.id)
     elif isinstance(node, ast.Attribute):
@@ -34,27 +35,24 @@ def _evaluate_node(node: ast.AST) -> Any:
         kwargs = {kw.arg: _evaluate_node(kw.value) for kw in node.keywords if kw.arg}
         return callable_obj(*args, **kwargs)
     else:
-        raise ValueError(f"Unsupported syntax node: {type(node).__name__}")
+        raise ParsingError(f"Unsupported syntax node: {type(node).__name__}")
 
 
-def parse_command(line: str) -> Optional[Dict[str, Any]]:
+def parse_command(line: str) -> Dict[str, Any]:
     line = line.strip()
     if not line:
-        return None
+        raise ParsingError("Command line is empty.")
 
     try:
         tree = ast.parse(line, mode='eval').body
     except SyntaxError as e:
-        logger.error("Failed to parse command line due to syntax error: '%s': %s", line, e)
-        return None
+        raise ParsingError(f"Syntax error in command: {e}") from e
 
     if not isinstance(tree, ast.Call):
-        logger.warning(f"Command is not a function call, trying to evaluate directly: '{line}'")
         try:
             return {"type": "low_level", "request_object": _evaluate_node(tree)}
         except Exception as e:
-            logger.error("Failed to evaluate non-call command '%s': %s", line, e)
-            return None
+            raise ParsingError(f"Failed to evaluate non-call command: {e}") from e
 
     func_node = tree.func
     if isinstance(func_node, ast.Attribute) and isinstance(func_node.value,
@@ -65,12 +63,10 @@ def parse_command(line: str) -> Optional[Dict[str, Any]]:
             kwargs = {kw.arg: _evaluate_node(kw.value) for kw in tree.keywords if kw.arg}
             return {"type": "high_level", "method_name": method_name, "args": args, "kwargs": kwargs, }
         except Exception as e:
-            logger.error("Failed to evaluate arguments for high-level command '%s': %s", line, e)
-            return None
+            raise ParsingError(f"Failed to evaluate arguments for high-level command: {e}") from e
 
     try:
         request_object = _evaluate_node(tree)
         return {"type": "low_level", "request_object": request_object}
     except Exception as e:
-        logger.error("Failed to parse low-level command '%s': %s", line, e)
-        return None
+        raise ParsingError(f"Failed to parse low-level command: {e}") from e
