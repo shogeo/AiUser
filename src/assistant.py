@@ -124,7 +124,6 @@ class TelegramAIAssistant:
             if line.upper() == "NONE":
                 continue
 
-            res_text: str = ""
             file_part: types.Part = None
             try:
                 command_object = parse_command(line)
