@@ -22,7 +22,6 @@ class CommandExecutor:
 
         local_path = await download_coro(download_path)
         if not local_path or not os.path.exists(local_path):
-            # Let the OS raise a FileNotFoundError if the file is not found later
             pass
 
         try:
@@ -30,7 +29,7 @@ class CommandExecutor:
 
             while google_file.state.name != "ACTIVE":
                 if google_file.state.name == "FAILED":
-                    raise ConnectionError(f"File upload failed for '{local_path}'. State: FAILED")
+                    raise ConnectionError(f"Google API file upload failed. Final state: {google_file}")
                 await asyncio.sleep(1)
                 google_file = await self.genai_client.aio.files.get(name=google_file.name)
 
@@ -40,36 +39,37 @@ class CommandExecutor:
                 os.remove(local_path)
 
     async def execute(self, command: Dict[str, Any]) -> Union[str, Tuple[str, types.Part]]:
-        command_type = command.get("type")
+        try:
+            command_type = command.get("type")
 
-        if command_type == "high_level":
-            method_name = command["method_name"]
-            args = command.get("args", [])
-            kwargs = command.get("kwargs", {})
+            if command_type == "high_level":
+                method_name = command["method_name"]
+                args = command.get("args", [])
+                kwargs = command.get("kwargs", {})
 
-            if method_name == "download_media":
-                chat_id = args[0]
-                message_id = kwargs["message_id"]
-                message = await self.tg_client.get_messages(chat_id, ids=message_id)
-                # Let it fail naturally with an AttributeError if message is None or has no media
-                return await self._download_and_upload(lambda path: message.download_media(file=path))
+                if method_name == "download_media":
+                    chat_id = args[0]
+                    message_id = kwargs["message_id"]
+                    message = await self.tg_client.get_messages(chat_id, ids=message_id)
+                    return await self._download_and_upload(lambda path: message.download_media(file=path))
 
-            elif method_name == "download_profile_photo":
-                entity = await self.tg_client.get_entity(args[0])
-                return await self._download_and_upload(
-                    lambda path: self.tg_client.download_profile_photo(entity, file=path))
+                elif method_name == "download_profile_photo":
+                    entity = await self.tg_client.get_entity(args[0])
+                    return await self._download_and_upload(
+                        lambda path: self.tg_client.download_profile_photo(entity, file=path))
+
+                else:
+                    method_to_call = getattr(self.tg_client, method_name)
+                    result = await method_to_call(*args, **kwargs)
+
+            elif command_type == "low_level":
+                request_object = command.get("request_object")
+                result = await self.tg_client(request_object)
 
             else:
-                method_to_call = getattr(self.tg_client, method_name)
-                result = await method_to_call(*args, **kwargs)
+                pass
 
-        elif command_type == "low_level":
-            request_object = command.get("request_object")
-            # Let it fail naturally with a TypeError if request_object is None
-            result = await self.tg_client(request_object)
-
-        else:
-            # Let it fail naturally with a TypeError or KeyError if command_type is unknown
-            pass
-
-        return str(result) if result is not None else "None"
+            return str(result) if result is not None else "None"
+        except Exception as e:
+            logger.error("Unhandled exception in CommandExecutor", exc_info=True)
+            raise e

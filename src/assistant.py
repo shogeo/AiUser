@@ -52,8 +52,8 @@ class TelegramAIAssistant:
             self._processing = False
             self._last_request_time = 0
             self.is_running = True
-        except Exception as e:
-            logger.critical(f"Failed to initialize assistant: {e}")
+        except Exception:
+            logger.critical("Failed to initialize assistant", exc_info=True)
             self.is_running = False
 
     async def setup(self):
@@ -63,9 +63,9 @@ class TelegramAIAssistant:
             logger.info("Started and connected to Telegram.")
             return True
         except errors.ApiIdInvalidError:
-            logger.critical("Telegram API ID/Hash is invalid.")
-        except Exception as e:
-            logger.critical(f"Failed to connect to Telegram: {e}")
+            logger.critical("Telegram API ID/Hash is invalid.", exc_info=True)
+        except Exception:
+            logger.critical("Failed to connect to Telegram", exc_info=True)
         return False
 
     async def _raw_handler(self, event):
@@ -82,8 +82,8 @@ class TelegramAIAssistant:
         try:
             self.context_mgr.add_user_message("\n".join(events_list))
             await self._main_loop()
-        except Exception as e:
-            logger.error(f"Error in main processing loop: {e}", exc_info=True)
+        except Exception:
+            logger.error("Error in main processing loop", exc_info=True)
         finally:
             self._processing = False
 
@@ -103,8 +103,8 @@ class TelegramAIAssistant:
                                                                                system_instruction=self.context_mgr.get_system_prompt(),
                                                                                safety_settings=SAFETY_SETTINGS, ))
             model_reply = response.text.strip()
-        except Exception as e:
-            logger.error(f"Neural network API call failed: {e}")
+        except Exception:
+            logger.error("Neural network API call failed", exc_info=True)
             return
 
         if not model_reply or model_reply.upper() == "NONE":
@@ -135,7 +135,7 @@ class TelegramAIAssistant:
                 else:
                     res_text = execution_result
             except Exception as e:
-                logger.error(f"Error processing command '{line}': {e}")
+                logger.error("Error processing command '%s'", line, exc_info=True)
                 res_text = str(e)
                 file_part = None
 
