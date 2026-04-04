@@ -20,4 +20,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("Shutdown requested by user.")
     except Exception as e:
-        logger.critical(f"An unhandled exception occurred: {e}", exc_info=True)
+        logger.critical("An unhandled exception occurred: %s", e)

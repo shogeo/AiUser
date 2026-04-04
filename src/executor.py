@@ -71,5 +71,5 @@ class CommandExecutor:
 
             return str(result) if result is not None else "None"
         except Exception as e:
-            logger.error("Unhandled exception in CommandExecutor", exc_info=True)
+            logger.error("Unhandled exception in CommandExecutor: %s", e)
             raise e

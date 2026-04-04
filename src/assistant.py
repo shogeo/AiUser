@@ -52,8 +52,8 @@ class TelegramAIAssistant:
             self._processing = False
             self._last_request_time = 0
             self.is_running = True
-        except Exception:
-            logger.critical("Failed to initialize assistant", exc_info=True)
+        except Exception as e:
+            logger.critical("Failed to initialize assistant: %s", e)
             self.is_running = False
 
     async def setup(self):
@@ -62,10 +62,10 @@ class TelegramAIAssistant:
             self.tg_client.add_event_handler(self._raw_handler)
             logger.info("Started and connected to Telegram.")
             return True
-        except errors.ApiIdInvalidError:
-            logger.critical("Telegram API ID/Hash is invalid.", exc_info=True)
-        except Exception:
-            logger.critical("Failed to connect to Telegram", exc_info=True)
+        except errors.ApiIdInvalidError as e:
+            logger.critical("Telegram API ID/Hash is invalid: %s", e)
+        except Exception as e:
+            logger.critical("Failed to connect to Telegram: %s", e)
         return False
 
     async def _raw_handler(self, event):
@@ -82,8 +82,8 @@ class TelegramAIAssistant:
         try:
             self.context_mgr.add_user_message("\n".join(events_list))
             await self._main_loop()
-        except Exception:
-            logger.error("Error in main processing loop", exc_info=True)
+        except Exception as e:
+            logger.error("Error in main processing loop: %s", e)
         finally:
             self._processing = False
 
@@ -103,8 +103,8 @@ class TelegramAIAssistant:
                                                                                system_instruction=self.context_mgr.get_system_prompt(),
                                                                                safety_settings=SAFETY_SETTINGS, ))
             model_reply = response.text.strip()
-        except Exception:
-            logger.error("Neural network API call failed", exc_info=True)
+        except Exception as e:
+            logger.error("Neural network API call failed: %s", e)
             return
 
         if not model_reply or model_reply.upper() == "NONE":
@@ -124,6 +124,7 @@ class TelegramAIAssistant:
             if line.upper() == "NONE":
                 continue
 
+            res_text: str = ""
             file_part: types.Part = None
             try:
                 command_object = parse_command(line)
@@ -134,7 +135,7 @@ class TelegramAIAssistant:
                 else:
                     res_text = execution_result
             except Exception as e:
-                logger.error("Error processing command '%s'", line, exc_info=True)
+                logger.error("Error processing command '%s': %s", line, e)
                 res_text = str(e)
                 file_part = None
 

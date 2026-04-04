@@ -26,7 +26,7 @@ class ContextManager:
                         types.Content(role=item["role"], parts=[types.Part.from_text(text=item["content"])]))
             logger.info(f"Successfully loaded context from {CONTEXT_FILE_PATH}")
         except (IOError, json.JSONDecodeError) as e:
-            logger.error(f"Failed to load context from {CONTEXT_FILE_PATH}: {e}")
+            logger.error("Failed to load context from %s: %s", CONTEXT_FILE_PATH, e)
 
     def _save_to_file(self):
         try:
@@ -37,7 +37,7 @@ class ContextManager:
             with open(CONTEXT_FILE_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except IOError as e:
-            logger.error(f"Failed to save context to {CONTEXT_FILE_PATH}: {e}")
+            logger.error("Failed to save context to %s: %s", CONTEXT_FILE_PATH, e)
 
     def get_system_prompt(self) -> str:
         return self.system_prompt

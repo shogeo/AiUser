@@ -44,16 +44,16 @@ def parse_command(line: str) -> Optional[Dict[str, Any]]:
 
     try:
         tree = ast.parse(line, mode='eval').body
-    except SyntaxError:
-        logger.error("Failed to parse command line due to syntax error: '%s'", line, exc_info=True)
+    except SyntaxError as e:
+        logger.error("Failed to parse command line due to syntax error: '%s': %s", line, e)
         return None
 
     if not isinstance(tree, ast.Call):
         logger.warning(f"Command is not a function call, trying to evaluate directly: '{line}'")
         try:
             return {"type": "low_level", "request_object": _evaluate_node(tree)}
-        except Exception:
-            logger.error("Failed to evaluate non-call command '%s'", line, exc_info=True)
+        except Exception as e:
+            logger.error("Failed to evaluate non-call command '%s': %s", line, e)
             return None
 
     func_node = tree.func
@@ -64,13 +64,13 @@ def parse_command(line: str) -> Optional[Dict[str, Any]]:
             args = [_evaluate_node(arg) for arg in tree.args]
             kwargs = {kw.arg: _evaluate_node(kw.value) for kw in tree.keywords if kw.arg}
             return {"type": "high_level", "method_name": method_name, "args": args, "kwargs": kwargs, }
-        except Exception:
-            logger.error("Failed to evaluate arguments for high-level command '%s'", line, exc_info=True)
+        except Exception as e:
+            logger.error("Failed to evaluate arguments for high-level command '%s': %s", line, e)
             return None
 
     try:
         request_object = _evaluate_node(tree)
         return {"type": "low_level", "request_object": request_object}
-    except Exception:
-        logger.error("Failed to parse low-level command '%s'", line, exc_info=True)
+    except Exception as e:
+        logger.error("Failed to parse low-level command '%s': %s", line, e)
         return None
