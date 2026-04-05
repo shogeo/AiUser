@@ -78,6 +78,14 @@ class CommandExecutor:
                     return await self._download_and_upload(
                         lambda path: self.tg_client.download_profile_photo(entity, file=path))
 
+                elif method_name == "action":
+                    entity = args[0]
+                    action = kwargs.get("action", "typing")
+                    duration = kwargs.get("duration", 5)
+                    async with self.tg_client.action(entity, action):
+                        await asyncio.sleep(duration)
+                    return f"Performed action '{action}' for {duration} seconds."
+
                 else:
                     method_to_call = getattr(self.tg_client, method_name)
                     result = await method_to_call(*args, **kwargs)
