@@ -10,10 +10,9 @@ TG_API_HASH = os.getenv("TG_API_HASH")
 SESSION_FILE = "session.session"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-PROXYAPI_KEY = os.getenv("PROXYAPI_KEY")
-
-USE_PROXYAPI = False
 
 EVENT_BUFFER_TIMEOUT = 10
 
 SYSTEM_PROMPT_PATH = Path("system_prompt.txt")
+PERSON_PROMPT_PATH = Path("person_prompt.txt")
+CONTEXT_FILE_PATH = Path("context.json")

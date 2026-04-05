@@ -1,47 +1,73 @@
+import asyncio
+import time
+from typing import Tuple, Union
+
 from google import genai
 from google.genai import types
 from google.genai.types import HarmCategory, HarmBlockThreshold
-from telethon import TelegramClient
+from telethon import TelegramClient, errors
 
 from src.buffer import EventBuffer
-from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH)
+from src.config import (TG_API_ID, TG_API_HASH, SESSION_FILE, GEMINI_API_KEY, SYSTEM_PROMPT_PATH, PERSON_PROMPT_PATH)
 from src.context import ContextManager
-from src.exceptions import ModelCommandError, SystemCommandError
+from src.exceptions import ParsingError, MethodNotFoundError, ArgumentError, ExecutionError
 from src.executor import CommandExecutor
-from src.file_manager import FileManager
-from src.logger import get_logger, configure_logging
+from src.logger import get_logger
 from src.parser import parse_command
 
-configure_logging()
 logger = get_logger("assistant")
+
+REQUEST_INTERVAL = 5
 
 SAFETY_SETTINGS = [
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.OFF),
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.OFF),
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=HarmBlockThreshold.OFF),
-    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.OFF)]
+    types.SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.OFF), ]
 
 
 class TelegramAIAssistant:
     def __init__(self):
-        self.tg_client = TelegramClient(SESSION_FILE, TG_API_ID, TG_API_HASH)
-        self.genai_client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1beta'})
+        try:
+            self.tg_client = TelegramClient(SESSION_FILE, TG_API_ID, TG_API_HASH)
+            self.genai_client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1beta'})
 
-        if not SYSTEM_PROMPT_PATH.exists():
-            raise FileNotFoundError(f"Prompt file missing: {SYSTEM_PROMPT_PATH}")
-        prompt_text = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+            if not SYSTEM_PROMPT_PATH.exists():
+                raise FileNotFoundError(f"System prompt file not found at {SYSTEM_PROMPT_PATH}")
 
-        self.context_mgr = ContextManager(prompt_text)
-        self.file_manager = FileManager(self.genai_client)
-        self.executor = CommandExecutor(self.tg_client, self.file_manager)
+            system_prompt_content = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
-        self.event_buffer = EventBuffer(self._on_event_buffer_flush)
-        self._processing = False
+            person_prompt_content = ""
+            if PERSON_PROMPT_PATH.exists():
+                person_prompt_content = PERSON_PROMPT_PATH.read_text(encoding="utf-8").strip()
+            else:
+                logger.warning(f"Person prompt file not found at {PERSON_PROMPT_PATH}. Continuing without it.")
+
+            combined_prompt_text = system_prompt_content
+            if person_prompt_content:
+                combined_prompt_text += "\n\nPERSON:\n" + person_prompt_content
+
+            self.context_mgr = ContextManager(combined_prompt_text)
+            self.executor = CommandExecutor(self.tg_client, self.genai_client)
+            self.event_buffer = EventBuffer(self._on_event_buffer_flush)
+            self._processing = False
+            self._last_request_time = 0
+            self.is_running = True
+        except Exception as e:
+            logger.critical("Failed to initialize assistant: %s", e)
+            self.is_running = False
 
     async def setup(self):
-        await self.tg_client.start()
-        self.tg_client.add_event_handler(self._raw_handler)
-        logger.info("Started and connected to Telegram.")
+        try:
+            await self.tg_client.start()
+            self.tg_client.add_event_handler(self._raw_handler)
+            logger.info("Started and connected to Telegram.")
+            return True
+        except errors.ApiIdInvalidError as e:
+            logger.critical("Telegram API ID/Hash is invalid: %s", e)
+        except Exception as e:
+            logger.critical("Failed to connect to Telegram: %s", e)
+        return False
 
     async def _raw_handler(self, event):
         event_str = str(event)
@@ -57,73 +83,84 @@ class TelegramAIAssistant:
         try:
             self.context_mgr.add_user_message("\n".join(events_list))
             await self._main_loop()
+        except Exception as e:
+            logger.error("Error in main processing loop: %s", e)
         finally:
             self._processing = False
 
     async def _main_loop(self):
+        current_time = time.monotonic()
+        time_since_last_request = current_time - self._last_request_time
+        if time_since_last_request < REQUEST_INTERVAL:
+            await asyncio.sleep(REQUEST_INTERVAL - time_since_last_request)
+
+        self._last_request_time = time.monotonic()
+        logger.info("Sending event batch to the neural network...")
+
         try:
-            logger.info("Sending event batch to the neural network...")
             response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
                                                                            contents=self.context_mgr.get_contents(),
                                                                            config=types.GenerateContentConfig(
                                                                                system_instruction=self.context_mgr.get_system_prompt(),
                                                                                safety_settings=SAFETY_SETTINGS, ))
-
-            if not response.text:
-                logger.warning("Neural network returned no text. Ending loop.")
-                return
-
             model_reply = response.text.strip()
-            logger.info("Neural network response:\n%s", model_reply)
+        except Exception as e:
+            logger.error("Neural network API call failed: %s", e)
+            return
 
-            if model_reply.upper() == "NONE":
-                return
+        if not model_reply or model_reply.upper() == "NONE":
+            logger.info("Neural network returned no actionable response.")
+            return
 
-            self.context_mgr.add_model_message(model_reply)
-            command_lines = [l.strip() for l in model_reply.split("\n") if l.strip()]
+        logger.info("Neural network response:\n%s", model_reply)
+        self.context_mgr.add_model_message(model_reply)
 
-            if command_lines:
-                logger.info("Executing commands and getting results...")
+        command_lines = [l.strip() for l in model_reply.split("\n") if l.strip()]
+        if not command_lines:
+            return
 
-            has_executed_anything = False
-            for line in command_lines:
-                if line.upper() == "NONE":
+        logger.info("Executing commands...")
+        has_executed_anything = False
+        for line in command_lines:
+            if line.upper() == "NONE":
+                continue
+
+            file_part: types.Part = None
+            try:
+                command_object = parse_command(line)
+                execution_result: Union[str, Tuple[str, types.Part]] = await self.executor.execute(command_object)
+
+                if execution_result == "SYSTEM_ERROR":
                     continue
 
-                try:
-                    method, args, kwargs = parse_command(line)
-                    cmd_str, res_text, file_part = await self.executor.execute(method, args, kwargs)
+                if isinstance(execution_result, tuple):
+                    res_text, file_part = execution_result
+                else:
+                    res_text = execution_result
 
-                    self.context_mgr.add_user_message(f"Command execution result:\n{res_text}", file_part=file_part)
-                    has_executed_anything = True
+            except (ParsingError, MethodNotFoundError, ArgumentError, ExecutionError) as e:
+                logger.warning("Command failed: %s", e)
+                res_text = str(e)
+                file_part = None
 
-                except ModelCommandError as e:
-                    logger.warning("Model command error for '%s': %s", line, e)
-                    self.context_mgr.add_user_message(f"Error in generated command '{line}':\n{e}")
-                    has_executed_anything = True
+            formatted_result = f"{line}\n\n{res_text}"
+            self.context_mgr.add_user_message(formatted_result, file_part=file_part)
+            has_executed_anything = True
 
-                except SystemCommandError as e:
-                    logger.error("System error during command execution for '%s': %s", line, e,
-                                 exc_info=True)
-
-                except Exception as e:
-                    logger.critical("An unexpected error occurred for command '%s': %s", line, e,
-                                    exc_info=True)
-
-            if has_executed_anything:
-                if self.event_buffer.buffer:
-                    new_events = "\n".join(self.event_buffer.buffer)
-                    self.event_buffer.buffer.clear()
-                    self.context_mgr.add_user_message(new_events)
-
-                await self._main_loop()
-
-        except Exception as e:
-            logger.critical("Fatal error in main loop: %s", e, exc_info=True)
+        if has_executed_anything:
+            if self.event_buffer.buffer:
+                new_events = "\n".join(self.event_buffer.buffer)
+                self.event_buffer.buffer.clear()
+                self.context_mgr.add_user_message(new_events)
+            await self._main_loop()
 
     async def run(self):
+        if not self.is_running or not await self.setup():
+            return
+
+        logger.info("Assistant is running. Press Ctrl+C to stop.")
         try:
-            await self.setup()
             await self.tg_client.run_until_disconnected()
         finally:
             logger.info("Shutting down.")
+            self.is_running = False

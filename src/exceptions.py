@@ -1,17 +1,18 @@
-class ModelCommandError(Exception):
+class ParsingError(Exception):
+    """Error during command parsing."""
     pass
 
-class ParsingError(ModelCommandError):
+
+class MethodNotFoundError(Exception):
+    """Error when a method is not found on the client."""
     pass
 
-class CommandNotFoundError(ModelCommandError):
+
+class ArgumentError(Exception):
+    """Error due to invalid arguments for a method."""
     pass
 
-class InvalidArgumentError(ModelCommandError):
-    pass
 
-class SystemCommandError(Exception):
-    pass
-
-class FileOperationError(SystemCommandError):
+class ExecutionError(Exception):
+    """Error during command execution in Telegram's API."""
     pass

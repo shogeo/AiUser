@@ -1,15 +1,23 @@
 import asyncio
-
 from src.assistant import TelegramAIAssistant
+from src.logger import get_logger, configure_logging
+
+# It's better to configure logging at the very beginning
+configure_logging()
+logger = get_logger("main")
 
 
 async def main():
+    """Main entry point for the assistant."""
     assistant = TelegramAIAssistant()
-    await assistant.run()
+    if assistant.is_running:
+        await assistant.run()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        pass
+        logger.info("Shutdown requested by user.")
+    except Exception as e:
+        logger.critical("An unhandled exception occurred: %s", e)

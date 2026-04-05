@@ -1,110 +1,113 @@
 import asyncio
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+import importlib
+import os
+from typing import Any, Dict
 
+from google import genai
 from google.genai import types
+from google.genai.types import Part
 from telethon import TelegramClient
+from telethon.errors import RPCError
 
-from src.exceptions import CommandNotFoundError, InvalidArgumentError, SystemCommandError, FileOperationError
-from src.file_manager import FileManager
+from src.exceptions import MethodNotFoundError, ArgumentError, ExecutionError
 from src.logger import get_logger
 
 logger = get_logger("executor")
 
 
-@dataclass
-class CommandResult:
-    text_result: str
-    file_to_upload: Optional[Path] = None
+def _get_callable_from_path(full_path: str):
+    try:
+        parts = full_path.split('.')
+        module_path = ".".join(parts[:-1])
+        func_name = parts[-1]
+        module = importlib.import_module(module_path)
+        return getattr(module, func_name)
+    except (ImportError, AttributeError, IndexError) as e:
+        raise MethodNotFoundError(f"Could not find method: {full_path}") from e
 
 
 class CommandExecutor:
-    def __init__(self, tg_client: TelegramClient, file_manager: FileManager):
+    def __init__(self, tg_client: TelegramClient, genai_client: genai.Client):
         self.tg_client = tg_client
-        self.file_manager = file_manager
+        self.genai_client = genai_client
 
-    async def download_media(self, entity: Union[int, str], message_id: int) -> CommandResult:
-        try:
-            entity_resolved = await self.tg_client.get_input_entity(entity)
-            msg = await self.tg_client.get_messages(entity_resolved, ids=int(message_id))
-            if not msg or not msg.media:
-                return CommandResult(text_result="No media found in this message.")
+    async def _download_and_upload(self, download_coro) -> tuple[str, None] | tuple[str, Part]:
+        download_path = "downloads/"
+        os.makedirs(download_path, exist_ok=True)
 
-            path = await self.tg_client.download_media(msg, file=str(self.file_manager.downloads_dir))
-
-            if path:
-                downloaded_path = Path(path)
-                return CommandResult(text_result=f"Media downloaded to {downloaded_path.name}",
-                                     file_to_upload=downloaded_path)
-            else:
-                raise FileOperationError("Failed to download media: unknown reason.")
-        except FileOperationError:
-            raise
-        except Exception as e:
-            logger.error("System error during media download for entity '%s', message_id '%s': %s", entity, message_id,
-                         e, exc_info=True)
-            raise SystemCommandError(f"System error during media download: {e}") from e
-
-    async def download_profile_photo(self, entity: Union[int, str], download_big: bool = True) -> CommandResult:
-        try:
-            entity_resolved = await self.tg_client.get_input_entity(entity)
-            path = await self.tg_client.download_profile_photo(entity_resolved,
-                                                               file=str(self.file_manager.downloads_dir),
-                                                               download_big=download_big)
-
-            if path:
-                downloaded_path = Path(path)
-                return CommandResult(text_result=f"Profile photo downloaded to {downloaded_path.name}",
-                                     file_to_upload=downloaded_path)
-            else:
-                raise FileOperationError("Failed to download profile photo: unknown reason.")
-        except FileOperationError:
-            raise
-        except Exception as e:
-            logger.error("System error during profile photo download for entity '%s': %s", entity, e, exc_info=True)
-            raise SystemCommandError(f"System error during profile photo download: {e}") from e
-
-    async def execute(self, method_name: str, args: List[Any], kwargs: Dict[str, Any]) -> Tuple[
-        str, str, Optional[types.Part]]:
-
-        command_str = f"{method_name}({', '.join(map(repr, args))}, {', '.join(f'{k}={repr(v)}' for k, v in kwargs.items())})"
+        local_path = await download_coro(download_path)
+        if not local_path or not os.path.exists(local_path):
+            return "Download failed, file not found.", None
 
         try:
-            command_result: CommandResult
+            google_file = await self.genai_client.aio.files.upload(file=local_path)
 
-            if method_name == "download_media":
-                command_result = await self.download_media(*args, **kwargs)
-            elif method_name == "download_profile_photo":
-                command_result = await self.download_profile_photo(*args, **kwargs)
+            while google_file.state.name != "ACTIVE":
+                if google_file.state.name == "FAILED":
+                    raise ConnectionError(f"Google API file upload failed. Final state: {google_file}")
+                await asyncio.sleep(1)
+                google_file = await self.genai_client.aio.files.get(name=google_file.name)
+
+            return f"File '{os.path.basename(local_path)}' uploaded successfully.", types.Part.from_uri(
+                file_uri=google_file.uri, mime_type=google_file.mime_type)
+        finally:
+            if os.path.exists(local_path):
+                os.remove(local_path)
+
+    async def execute(self, command: Dict[str, Any]) -> str | tuple[str, None] | tuple[str, Part]:
+        try:
+            command_type = command.get("type")
+            args = command.get("args", [])
+            kwargs = command.get("kwargs", {})
+
+            if command_type == "high_level":
+                method_name = command["method_name"]
+                if not hasattr(self.tg_client, method_name):
+                    raise MethodNotFoundError(f"'TelegramClient' object has no attribute '{method_name}'")
+
+                if method_name == "download_media":
+                    chat_id = args[0]
+                    message_id = kwargs["message_id"]
+                    message = await self.tg_client.get_messages(chat_id, ids=message_id)
+                    if not message or not message.media:
+                        return "Message has no media to download.", None
+                    return await self._download_and_upload(lambda path: message.download_media(file=path))
+
+                elif method_name == "download_profile_photo":
+                    entity = await self.tg_client.get_entity(args[0])
+                    return await self._download_and_upload(
+                        lambda path: self.tg_client.download_profile_photo(entity, file=path))
+
+                elif method_name == "action":
+                    entity = args[0]
+                    action = kwargs.get("action", "typing")
+                    duration = kwargs.get("duration", 5)
+                    async with self.tg_client.action(entity, action):
+                        await asyncio.sleep(duration)
+                    return f"Performed action '{action}' for {duration} seconds."
+
+                else:
+                    method_to_call = getattr(self.tg_client, method_name)
+                    result = await method_to_call(*args, **kwargs)
+
+            elif command_type == "low_level":
+                full_path = command["full_path"]
+                callable_obj = _get_callable_from_path(full_path)
+                request_object = callable_obj(*args, **kwargs)
+                result = await self.tg_client(request_object)
+
             else:
-                method = getattr(self.tg_client, method_name, None)
-                if not method or not callable(method):
-                    raise CommandNotFoundError(f"Method '{method_name}' not found on TelegramClient.")
+                raise MethodNotFoundError(f"Unknown command type: {command_type}")
 
-                try:
-                    if asyncio.iscoroutinefunction(method):
-                        raw_result = await method(*args, **kwargs)
-                    else:
-                        raw_result = method(*args, **kwargs)
+            return str(result) if result is not None else "None"
 
-                    command_result = CommandResult(text_result=str(raw_result))
-                except TypeError as e:
-                    raise InvalidArgumentError(f"Invalid arguments for method '{method_name}': {e}") from e
-                except Exception as e:
-                    logger.error("System error during execution of TelegramClient method '%s': %s", method_name, e,
-                                 exc_info=True)
-                    raise SystemCommandError(f"System error during execution of '{method_name}': {e}") from e
-
-            file_part = None
-            if command_result.file_to_upload:
-                file_part = await self.file_manager.upload_and_get_part(command_result.file_to_upload)
-
-            return command_str, command_result.text_result, file_part
-
-        except (CommandNotFoundError, InvalidArgumentError, SystemCommandError, FileOperationError):
-            raise
+        except (TypeError, ValueError) as e:
+            raise ArgumentError(str(e)) from e
+        except RPCError as e:
+            raise ExecutionError(f"{type(e).__name__}: {e}") from e
+        except MethodNotFoundError as e:
+            # Re-raise to be caught by the main loop
+            raise e
         except Exception as e:
-            logger.critical("An unexpected error occurred in execute for command '%s': %s", command_str, e,
-                            exc_info=True)
-            raise SystemCommandError(f"An unexpected system error occurred during command execution: {e}") from e
+            logger.error("Unhandled system exception in CommandExecutor: %s", e)
+            return "SYSTEM_ERROR"

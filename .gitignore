@@ -13,5 +13,9 @@ __pycache__/
 
 # AiUser specific
 downloads/
+logs/
+
 *.session
 *.session-journal
+
+/context.json
