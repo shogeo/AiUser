@@ -39,20 +39,16 @@ class CommandExecutor:
         if not local_path or not os.path.exists(local_path):
             return "Download failed, file not found.", None
 
-        try:
-            google_file = await self.genai_client.aio.files.upload(file=local_path)
+        google_file = await self.genai_client.aio.files.upload(file=local_path)
 
-            while google_file.state.name != "ACTIVE":
-                if google_file.state.name == "FAILED":
-                    raise ConnectionError(f"Google API file upload failed. Final state: {google_file}")
-                await asyncio.sleep(1)
-                google_file = await self.genai_client.aio.files.get(name=google_file.name)
+        while google_file.state.name != "ACTIVE":
+            if google_file.state.name == "FAILED":
+                raise ConnectionError(f"Google API file upload failed. Final state: {google_file}")
+            await asyncio.sleep(1)
+            google_file = await self.genai_client.aio.files.get(name=google_file.name)
 
-            return f"File '{os.path.basename(local_path)}' uploaded successfully.", types.Part.from_uri(
-                file_uri=google_file.uri, mime_type=google_file.mime_type)
-        finally:
-            if os.path.exists(local_path):
-                os.remove(local_path)
+        return f"File '{os.path.basename(local_path)}' uploaded successfully.", types.Part.from_uri(
+            file_uri=google_file.uri, mime_type=google_file.mime_type)
 
     async def execute(self, command: Dict[str, Any]) -> str | tuple[str, None] | tuple[str, Part]:
         try:
