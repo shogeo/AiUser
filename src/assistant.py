@@ -19,6 +19,10 @@ logger = get_logger("assistant")
 
 REQUEST_INTERVAL = 5
 
+#model = "gemini-3.1-flash-lite-preview"
+model = "gemma-4-31b-it"
+
+
 SAFETY_SETTINGS = [
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=HarmBlockThreshold.OFF),
     types.SafetySetting(category=HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=HarmBlockThreshold.OFF),
@@ -98,7 +102,7 @@ class TelegramAIAssistant:
         logger.info("Sending event batch to the neural network...")
 
         try:
-            response = await self.genai_client.aio.models.generate_content(model="gemini-3.1-flash-lite-preview",
+            response = await self.genai_client.aio.models.generate_content(model=model,
                                                                            contents=self.context_mgr.get_contents(),
                                                                            config=types.GenerateContentConfig(
                                                                                system_instruction=self.context_mgr.get_system_prompt(),
