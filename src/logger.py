@@ -50,7 +50,7 @@ def configure_logging():
     session_handler.setFormatter(file_formatter)
     root_logger.addHandler(session_handler)
 
-    daily_log_path = os.path.join(log_dir, f"{datetime.now().strftime('%Y-%m-%d')}.log")
+    daily_log_path = os.path.join(log_dir, f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log")
     daily_handler = logging.FileHandler(daily_log_path, mode='a', encoding='utf-8')
     daily_handler.setFormatter(file_formatter)
     root_logger.addHandler(daily_handler)
